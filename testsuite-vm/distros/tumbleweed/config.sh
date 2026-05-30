@@ -1,0 +1,10 @@
+VM_NAME="snapper-test-tumbleweed"
+SSH_PORT=2222
+ISO_URL="https://download.opensuse.org/tumbleweed/iso/openSUSE-Tumbleweed-NET-x86_64-Current.iso"
+ISO_FILE="openSUSE-Tumbleweed-NET-x86_64-Current.iso"
+VM_RAM=2048
+VM_CPUS=2
+VM_DISK=20
+OS_VARIANT="opensusetumbleweed"
+INSTALL_URL="https://download.opensuse.org/tumbleweed/repo/oss/"
+CONFIGURE_FLAGS="--enable-selinux --disable-ext4"

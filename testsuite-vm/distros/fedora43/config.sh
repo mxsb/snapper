@@ -1,0 +1,9 @@
+VM_NAME="snapper-test-fedora43"
+SSH_PORT=2224
+ISO_URL="https://dl.fedoraproject.org/pub/fedora/linux/releases/43/Everything/x86_64/iso/Fedora-Everything-netinst-x86_64-43-1.6.iso"
+ISO_FILE="Fedora-Everything-netinst-x86_64-43-1.6.iso"
+VM_RAM=2048
+VM_CPUS=2
+VM_DISK=20
+OS_VARIANT="fedora43"
+CONFIGURE_FLAGS="--enable-selinux --disable-ext4"

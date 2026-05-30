@@ -1,0 +1,12 @@
+iso/
+disks/
+logs/
+.ssh/
+kickstart.ks
+autoyast.xml
+!/distros/*/kickstart.ks
+!/distros/*/autoyast.xml
+preseed.cfg
+!/distros/*/preseed.cfg
+# override root .gitignore's config.* (autotools) pattern
+!distros/*/config.sh

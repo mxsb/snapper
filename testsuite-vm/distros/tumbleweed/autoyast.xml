@@ -1,0 +1,233 @@
+<?xml version="1.0"?>
+<!DOCTYPE profile>
+<profile xmlns="http://www.suse.com/1.0/yast2ns" xmlns:config="http://www.suse.com/1.0/configns">
+
+  <general>
+    <mode>
+      <confirm config:type="boolean">false</confirm>
+      <confirm_base_product_license config:type="boolean">false</confirm_base_product_license>
+      <final_halt config:type="boolean">true</final_halt>
+    </mode>
+  </general>
+
+  <report>
+    <errors>
+      <show config:type="boolean">false</show>
+      <log config:type="boolean">true</log>
+    </errors>
+    <messages>
+      <show config:type="boolean">false</show>
+      <log config:type="boolean">true</log>
+    </messages>
+    <warnings>
+      <show config:type="boolean">false</show>
+      <log config:type="boolean">true</log>
+    </warnings>
+    <yesno_messages>
+      <show config:type="boolean">false</show>
+      <log config:type="boolean">true</log>
+    </yesno_messages>
+  </report>
+
+  <keyboard>
+    <keymap>english-us</keymap>
+  </keyboard>
+
+  <language>
+    <language>en_US</language>
+  </language>
+
+  <timezone>
+    <hwclock>UTC</hwclock>
+    <timezone>UTC</timezone>
+  </timezone>
+
+  <networking>
+    <keep_install_network config:type="boolean">true</keep_install_network>
+    <dns>
+      <hostname>snapper-test</hostname>
+      <nameservers config:type="list">
+        <nameserver>9.9.9.9</nameserver>
+      </nameservers>
+    </dns>
+  </networking>
+
+  <firewall>
+    <enable_firewall config:type="boolean">false</enable_firewall>
+  </firewall>
+
+  <bootloader>
+    <loader_type>grub2</loader_type>
+    <global>
+      <append>console=tty0 console=ttyS0,115200n8</append>
+      <timeout config:type="integer">5</timeout>
+    </global>
+  </bootloader>
+
+  <partitioning config:type="list">
+    <drive>
+      <use>all</use>
+      <disklabel>gpt</disklabel>
+      <initialize config:type="boolean">true</initialize>
+      <partitions config:type="list">
+        <partition>
+          <create config:type="boolean">true</create>
+          <format config:type="boolean">false</format>
+          <partition_id config:type="integer">263</partition_id>
+          <size>2MiB</size>
+        </partition>
+        <partition>
+          <create config:type="boolean">true</create>
+          <filesystem config:type="symbol">ext4</filesystem>
+          <format config:type="boolean">true</format>
+          <mount>/boot</mount>
+          <size>1GiB</size>
+        </partition>
+        <partition>
+          <create config:type="boolean">true</create>
+          <filesystem config:type="symbol">swap</filesystem>
+          <format config:type="boolean">true</format>
+          <mount>swap</mount>
+          <size>1GiB</size>
+        </partition>
+        <partition>
+          <create config:type="boolean">true</create>
+          <filesystem config:type="symbol">btrfs</filesystem>
+          <format config:type="boolean">true</format>
+          <mount>/</mount>
+          <size>max</size>
+          <subvolumes_prefix>@</subvolumes_prefix>
+        </partition>
+      </partitions>
+    </drive>
+  </partitioning>
+
+  <software>
+    <products config:type="list">
+      <product>openSUSE</product>
+    </products>
+    <install_recommended config:type="boolean">false</install_recommended>
+    <patterns config:type="list">
+      <pattern>base</pattern>
+    </patterns>
+    <packages config:type="list">
+      <package>openssh-server</package>
+      <package>snapper</package>
+      <package>btrfsprogs</package>
+      <package>acl</package>
+      <package>autoconf</package>
+      <package>automake</package>
+      <package>boost-devel</package>
+      <package>libboost_thread-devel</package>
+      <package>libbtrfs-devel</package>
+      <package>libbtrfsutil-devel</package>
+      <package>dbus-1-devel</package>
+      <package>diffutils</package>
+      <package>docbook-xsl-stylesheets</package>
+      <package>gcc-c++</package>
+      <package>gettext-tools</package>
+      <package>glibc-locale</package>
+      <package>libjson-c-devel</package>
+      <package>libacl-devel</package>
+      <package>libmount-devel</package>
+      <package>libtool</package>
+      <package>libxml2-devel</package>
+      <package>libxslt-tools</package>
+      <package>make</package>
+      <package>ncurses-devel</package>
+      <package>pam-devel</package>
+      <package>xz</package>
+      <package>rsync</package>
+    </packages>
+  </software>
+
+  <services-manager>
+    <default_target>multi-user</default_target>
+    <services>
+      <enable config:type="list">
+        <service>sshd</service>
+      </enable>
+    </services>
+  </services-manager>
+
+  <users config:type="list">
+    <user>
+      <username>root</username>
+      <user_password>snapper-test</user_password>
+      <encrypted config:type="boolean">false</encrypted>
+      <authorized_keys config:type="list">
+        <listentry>@@SSH_PUBKEY@@</listentry>
+      </authorized_keys>
+    </user>
+  </users>
+
+  <scripts>
+    <pre-scripts config:type="list">
+      <script>
+        <filename>fix-dns.sh</filename>
+        <source><![CDATA[
+#!/bin/bash
+echo "nameserver 9.9.9.9" > /etc/resolv.conf
+]]></source>
+      </script>
+    </pre-scripts>
+    <chroot-scripts config:type="list">
+      <script>
+        <chrooted config:type="boolean">true</chrooted>
+        <filename>setup-ssh.sh</filename>
+        <source><![CDATA[
+#!/bin/bash
+mkdir -p /etc/ssh/sshd_config.d
+echo "PermitRootLogin yes" > /etc/ssh/sshd_config.d/99-snapper-test.conf
+echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config.d/99-snapper-test.conf
+echo "UsePAM no" >> /etc/ssh/sshd_config.d/99-snapper-test.conf
+]]></source>
+      </script>
+      <script>
+        <chrooted config:type="boolean">true</chrooted>
+        <filename>setup-dns.sh</filename>
+        <source><![CDATA[
+#!/bin/bash
+# passt's DHCP hands out no DNS server, and this minimal install uses
+# NetworkManager (no wicked, no netconfig). NM therefore writes no
+# /etc/resolv.conf, so the AutoYaST SECOND STAGE fails on first boot with
+# "Could not resolve host: download.opensuse.org" and leaves itself armed.
+# Pin a static DNS on the NM ethernet connection so resolv.conf exists from
+# the very first boot (incl. stage 2).
+mkdir -p /etc/NetworkManager/system-connections
+cat > /etc/NetworkManager/system-connections/enp1s0.nmconnection <<'NMCONN'
+[connection]
+id=enp1s0
+type=ethernet
+interface-name=enp1s0
+[ipv4]
+method=auto
+dns=9.9.9.9;
+ignore-auto-dns=true
+[ipv6]
+method=auto
+NMCONN
+chmod 600 /etc/NetworkManager/system-connections/enp1s0.nmconnection
+]]></source>
+      </script>
+      <script>
+        <chrooted config:type="boolean">true</chrooted>
+        <filename>cleanup-yast.sh</filename>
+        <source><![CDATA[
+#!/bin/bash
+# Disable all YaST/AutoYaST services that would re-enter the installer on boot.
+systemctl disable YaST2-Firstboot.service 2>/dev/null || true
+systemctl disable YaST2-Second-Stage.service 2>/dev/null || true
+systemctl disable autoyast-initscripts.service 2>/dev/null || true
+# Remove install markers
+rm -f /var/lib/YaST2/runme_at_boot /var/lib/YaST2/reconfig_system
+rm -f /var/lib/YaST2/second_stage_failed
+rm -f /etc/install.inf
+# Set hostname
+echo "snapper-test" > /etc/hostname
+]]></source>
+      </script>
+    </chroot-scripts>
+  </scripts>
+
+</profile>
