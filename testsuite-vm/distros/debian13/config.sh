@@ -1,0 +1,9 @@
+VM_NAME="snapper-test-debian13"
+SSH_PORT=2223
+ISO_URL="https://cdimage.debian.org/cdimage/release/current/amd64/iso-cd/debian-13.5.0-amd64-netinst.iso"
+ISO_FILE="debian-13.5.0-amd64-netinst.iso"
+VM_RAM=2048
+VM_CPUS=2
+VM_DISK=20
+OS_VARIANT="debian13"
+CONFIGURE_FLAGS="--disable-selinux --disable-ext4"

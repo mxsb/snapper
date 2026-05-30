@@ -1,0 +1,204 @@
+#!/bin/bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/common.sh"
+
+usage() {
+    echo "Usage: $0 <distro> [command]"
+    echo ""
+    echo "Distros: $(ls "$SCRIPT_DIR/distros/" | tr '\n' ' ')"
+    echo ""
+    echo "Commands:"
+    echo "  test      Build snapper and run rollback test (default, auto-installs if needed)"
+    echo "  install   Create VM from ISO (first time only)"
+    echo "  build     Copy source from host and build snapper in VM"
+    echo "  ssh       Open SSH session to VM"
+    echo "  destroy   Remove VM and disk image"
+    exit 1
+}
+
+[[ $# -lt 1 ]] && usage
+
+DISTRO="$1"
+COMMAND="${2:-test}"
+DISTRO_DIR="$SCRIPT_DIR/distros/$DISTRO"
+
+[[ -d "$DISTRO_DIR" ]] || die "Unknown distro: $DISTRO (no $DISTRO_DIR)"
+
+source "$DISTRO_DIR/config.sh"
+
+DISK_IMG="$DISK_DIR/${VM_NAME}.qcow2"
+
+LOG_DIR="$SCRIPT_DIR/logs"
+mkdir -p "$LOG_DIR"
+SERIAL_LOG="$LOG_DIR/${DISTRO}-serial.log"
+LOG_FILE="$LOG_DIR/${DISTRO}-${COMMAND}-$(date +%Y%m%d-%H%M%S).log"
+exec > >(tee -a "$LOG_FILE") 2>&1
+ln -sf "$(basename "$LOG_FILE")" "$LOG_DIR/${DISTRO}-${COMMAND}-latest.log"
+
+prepare_installer_config() {
+    local ks_src="$1" ks_out="$2"
+    ensure_ssh_key
+    local pubkey
+    pubkey=$(cat "$SSH_KEY.pub")
+    sed "s|@@SSH_PUBKEY@@|${pubkey}|g" "$ks_src" > "$ks_out"
+}
+
+cmd_install() {
+    if vm_exists "$VM_NAME"; then
+        info "VM '$VM_NAME' already exists. Use 'destroy' first to reinstall."
+        return
+    fi
+
+    download_iso "$ISO_URL" "$ISO_FILE"
+    ensure_ssh_key
+
+    info "Creating VM '$VM_NAME'..."
+
+    local installer_args=()
+    local ks_tmp="$SCRIPT_DIR/kickstart.ks"
+    local ay_tmp="$SCRIPT_DIR/autoyast.xml"
+    local ps_tmp="$SCRIPT_DIR/preseed.cfg"
+
+    if [[ -f "$DISTRO_DIR/kickstart.ks" ]]; then
+        prepare_installer_config "$DISTRO_DIR/kickstart.ks" "$ks_tmp"
+        info "Prepared kickstart: $ks_tmp ($(wc -c < "$ks_tmp") bytes)"
+        installer_args+=(--initrd-inject="$ks_tmp")
+        installer_args+=(--extra-args="inst.ks=file:/kickstart.ks inst.stage2=cdrom console=ttyS0 nameserver=9.9.9.9")
+    elif [[ -f "$DISTRO_DIR/autoyast.xml" ]]; then
+        prepare_installer_config "$DISTRO_DIR/autoyast.xml" "$ay_tmp"
+        info "Prepared autoyast: $ay_tmp ($(wc -c < "$ay_tmp") bytes)"
+        installer_args+=(--initrd-inject="$ay_tmp")
+        installer_args+=(--extra-args="autoyast=file:///autoyast.xml ${INSTALL_URL:+install=$INSTALL_URL} console=ttyS0 ifcfg=*=dhcp,NETCONFIG_DNS_STATIC_SERVERS=9.9.9.9 manual=0 linuxrc.debug=4,trace linemode=1 linuxrc.log=/dev/console")
+    elif [[ -f "$DISTRO_DIR/preseed.cfg" ]]; then
+        prepare_installer_config "$DISTRO_DIR/preseed.cfg" "$ps_tmp"
+        info "Prepared preseed: $ps_tmp ($(wc -c < "$ps_tmp") bytes)"
+        installer_args+=(--initrd-inject="$ps_tmp")
+        installer_args+=(--extra-args="auto=true priority=critical file=/preseed.cfg console=ttyS0 nameserver=9.9.9.9")
+    else
+        die "No installer config found in $DISTRO_DIR"
+    fi
+
+    trap 'info "Install failed, cleaning up..."; destroy_vm "$VM_NAME"; rm -f "$DISK_IMG" "$ks_tmp" "$ay_tmp" "$ps_tmp"' ERR
+
+    : > "$SERIAL_LOG"
+    local console_args=(--graphics none --console pty,target_type=serial)
+    if [[ ! -t 0 ]]; then
+        console_args=(--graphics none --noautoconsole)
+    fi
+
+    virt-install \
+        --connect qemu:///session \
+        --name "$VM_NAME" \
+        --ram "$VM_RAM" \
+        --vcpus "$VM_CPUS" \
+        --disk "path=$DISK_IMG,size=$VM_DISK,format=qcow2" \
+        --os-variant "$OS_VARIANT" \
+        --location "$ISO_DIR/$ISO_FILE" \
+        --network passt,portForward="${SSH_PORT}:22" \
+        --serial "file,path=$SERIAL_LOG" \
+        --noreboot \
+        "${console_args[@]}" \
+        "${installer_args[@]}"
+
+    if [[ ! -t 0 ]]; then
+        info "Install running headless, waiting for VM to shut off or SSH to come up..."
+        local start=$SECONDS
+        while vm_running "$VM_NAME"; do
+            if ssh -q "${SSH_OPTS[@]}" -o ConnectTimeout=5 -p "$SSH_PORT" \
+                   root@localhost true 2>/dev/null; then
+                info "VM booted into installed system (${SECONDS}s)."
+                break
+            fi
+            printf "  ... %ds elapsed\n" "$(( SECONDS - start ))"
+            sleep 30
+        done
+    fi
+
+    rm -f "$ks_tmp" "$ay_tmp" "$ps_tmp"
+    trap - ERR
+
+    if ! vm_running "$VM_NAME"; then
+        info "Installation complete. Starting VM..."
+        $VIRSH start "$VM_NAME"
+    fi
+    wait_for_ssh
+
+    if [[ -f "$DISTRO_DIR/post-install.sh" ]]; then
+	info "Running post-install fixups..."
+	vm_ssh bash -ex < "$DISTRO_DIR/post-install.sh"
+    fi
+
+    snapshot_vm "$VM_NAME" "clean-install"
+    info "VM ready. Clean snapshot saved."
+}
+
+cmd_build() {
+    vm_running "$VM_NAME" || $VIRSH start "$VM_NAME"
+    wait_for_ssh
+
+    sync_source
+    build_in_vm
+    info "Build complete."
+}
+
+cmd_test() {
+    if ! $VIRSH snapshot-list "$VM_NAME" --name 2>/dev/null | grep -q '^clean-install$'; then
+        info "No clean-install snapshot found, running install first..."
+        cmd_install
+    fi
+
+    restore_vm "$VM_NAME" "clean-install"
+    $VIRSH start "$VM_NAME" 2>/dev/null || true
+    wait_for_ssh
+    sync_source
+    build_in_vm
+
+    info "Running rollback test..."
+    local output
+    output=$(vm_ssh bash -s < "$SCRIPT_DIR/test-rollback.sh")
+    echo "$output"
+
+    local marker
+    marker=$(echo "$output" | grep '^MARKER_FILE=' | cut -d= -f2)
+    [[ -n "$marker" ]] || die "Could not extract marker file path from test output"
+
+    info "Rebooting VM to verify rollback..."
+    : > "$SERIAL_LOG"
+    vm_ssh systemctl reboot || true
+    sleep 5
+    if ! wait_for_ssh 600 soft; then
+        info "Post-rollback boot did not come up — last serial output:"
+        tail -n 40 "$SERIAL_LOG" 2>/dev/null || true
+        die "FAIL: SSH did not return after rollback reboot (see $SERIAL_LOG)"
+    fi
+
+    if vm_ssh test -f "$marker"; then
+        die "FAIL: $marker still exists after reboot — rollback did not take effect"
+    fi
+    info "PASS: $marker is gone after reboot. Rollback verified."
+
+    $VIRSH shutdown "$VM_NAME" 2>/dev/null || true
+}
+
+cmd_ssh() {
+    vm_running "$VM_NAME" || $VIRSH start "$VM_NAME"
+    wait_for_ssh
+    ssh "${SSH_OPTS[@]}" -p "$SSH_PORT" root@localhost
+}
+
+cmd_destroy() {
+    destroy_vm "$VM_NAME"
+    rm -f "$DISK_IMG"
+    info "VM '$VM_NAME' destroyed."
+}
+
+case "$COMMAND" in
+    install) cmd_install ;;
+    build)   cmd_build ;;
+    test)    cmd_test ;;
+    ssh)     cmd_ssh ;;
+    destroy) cmd_destroy ;;
+    *)       usage ;;
+esac
