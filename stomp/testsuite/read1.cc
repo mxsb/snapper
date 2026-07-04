@@ -89,3 +89,81 @@ BOOST_AUTO_TEST_CASE(escape1)
 
     BOOST_CHECK_EQUAL(msg.body, "WORLD");
 }
+
+
+BOOST_AUTO_TEST_CASE(error1)
+{
+    // missing \0 at frame end
+
+    istringstream s1("HELLO\nkey:value\ncontent-length:5\n\nWORL" + null);
+    istream s2(s1.rdbuf());
+
+    BOOST_CHECK_EXCEPTION(read_message(s2), exception, [](const exception& e) {
+        return strcmp(e.what(), "stomp error: missing \\0 at frame end") == 0;
+    });
+}
+
+
+BOOST_AUTO_TEST_CASE(error2)
+{
+    // missing \0 at frame end
+
+    istringstream s1("HELLO\nkey:value\ncontent-length:5\n\nWORLD");
+    istream s2(s1.rdbuf());
+
+    BOOST_CHECK_EXCEPTION(read_message(s2), exception, [](const exception& e) {
+        return strcmp(e.what(), "stomp error: missing \\0 at frame end") == 0;
+    });
+}
+
+
+BOOST_AUTO_TEST_CASE(error3)
+{
+    // truncated body
+
+    istringstream s1("HELLO\nkey:value\ncontent-length:50000\n\nWORLD" + null);
+    istream s2(s1.rdbuf());
+
+    BOOST_CHECK_EXCEPTION(read_message(s2), exception, [](const exception& e) {
+        return strcmp(e.what(), "stomp error: premature end of body") == 0;
+    });
+}
+
+
+BOOST_AUTO_TEST_CASE(error4)
+{
+    // empty content-lenght value
+
+    istringstream s1("HELLO\nkey:value\ncontent-length:\n\nWORLD" + null);
+    istream s2(s1.rdbuf());
+
+    BOOST_CHECK_EXCEPTION(read_message(s2), exception, [](const exception& e) {
+	return strcmp(e.what(), "stomp error: invalid content-length syntax ''") == 0;
+    });
+}
+
+
+BOOST_AUTO_TEST_CASE(error5)
+{
+    // invalid content-lenght value
+
+    istringstream s1("HELLO\nkey:value\ncontent-length:5a\n\nWORLD" + null);
+    istream s2(s1.rdbuf());
+
+    BOOST_CHECK_EXCEPTION(read_message(s2), exception, [](const exception& e) {
+	return strcmp(e.what(), "stomp error: invalid content-length value '5a'") == 0;
+    });
+}
+
+
+BOOST_AUTO_TEST_CASE(error6)
+{
+    // invalid negative content-lenght value
+
+    istringstream s1("HELLO\nkey:value\ncontent-length:-5\n\nWORLD" + null);
+    istream s2(s1.rdbuf());
+
+    BOOST_CHECK_EXCEPTION(read_message(s2), exception, [](const exception& e) {
+        return strcmp(e.what(), "stomp error: content-length value out of range '-5'") == 0;
+    });
+}

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) [2012-2015] Novell, Inc.
- * Copyright (c) [2018-2025] SUSE LLC
+ * Copyright (c) [2018-2026] SUSE LLC
  *
  * All Rights Reserved.
  *
@@ -113,7 +113,25 @@ MyMainLoop::method_call(DBus::Message& msg)
 	{
 	    y2deb("client connected invisible '" << name << "'");
 	    add_client_match(name);
-	    client = clients.add(name, get_unix_userid(msg));
+
+	    uid_t uid = -1;
+
+	    try
+	    {
+		uid = get_unix_userid(msg);
+	    }
+	    catch (const Exception& e)
+	    {
+		SN_CAUGHT(e);
+		y2err("failed to get uid of client");
+
+		DBus::MessageError reply(msg, "error.no_permissions", DBUS_ERROR_FAILED);
+		send(reply);
+
+		return;
+	    }
+
+	    client = clients.add(name, uid);
 	    set_idle_timeout(seconds(-1));
 	}
 
@@ -294,47 +312,47 @@ main(int argc, char** argv)
 
     signal(SIGPIPE, SIG_IGN);
 
-    dbus_threads_init_default();
-
-    MyMainLoop mainloop(DBUS_BUS_SYSTEM);
-
-    mainloop.set_idle_timeout(idle_time);
-
-    y2mil("Requesting DBus name");
-
     try
     {
+	dbus_threads_init_default();
+
+	MyMainLoop mainloop(DBUS_BUS_SYSTEM);
+
+	mainloop.set_idle_timeout(idle_time);
+
+	y2mil("Requesting DBus name");
+
 	mainloop.request_name(SERVICE, DBUS_NAME_FLAG_REPLACE_EXISTING);
+
+	y2mil("Loading snapper configs");
+
+	try
+	{
+	    meta_snappers.init();
+	}
+	catch (const Exception& e)
+	{
+	    SN_CAUGHT(e);
+
+	    y2err("Failed to load snapper configs");
+
+	    return EXIT_FAILURE;
+	}
+
+	y2mil("Listening for method calls and signals");
+
+	mainloop.run();
+
+	y2mil("Exiting");
+
+	meta_snappers.unload();
     }
     catch (const Exception& e)
     {
 	SN_CAUGHT(e);
-
-	y2err("Failed to request DBus name");
 
 	return EXIT_FAILURE;
     }
-
-    y2mil("Loading snapper configs");
-
-    try
-    {
-	meta_snappers.init();
-    }
-    catch (const Exception& e)
-    {
-	SN_CAUGHT(e);
-
-	y2err("Failed to load snapper configs");
-    }
-
-    y2mil("Listening for method calls and signals");
-
-    mainloop.run();
-
-    y2mil("Exiting");
-
-    meta_snappers.unload();
 
     return EXIT_SUCCESS;
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) [2019-2024] SUSE LLC
+ * Copyright (c) [2019-2026] SUSE LLC
  *
  * All Rights Reserved.
  *
@@ -21,6 +21,7 @@
 
 
 #include <regex>
+#include <limits>
 
 #include "Stomp.h"
 
@@ -29,6 +30,38 @@ namespace Stomp
 {
 
     using namespace std;
+
+
+    ssize_t
+    parse_content_length(const string& str)
+    {
+	try
+	{
+	    size_t pos = 0;
+	    long long ret = stoll(str, &pos);
+
+	    // Check if there are trailing unparsed characters (e.g., "100abc")
+	    if (pos < str.size())
+	    {
+		throw runtime_error("stomp error: invalid content-length value '" + str + "'");
+	    }
+
+	    if (ret < 0 || ret > std::numeric_limits<ssize_t>::max())
+	    {
+		throw runtime_error("stomp error: content-length value out of range '" + str + "'");
+	    }
+
+	    return static_cast<ssize_t>(ret);
+	}
+	catch (const invalid_argument&)
+	{
+	    throw runtime_error("stomp error: invalid content-length syntax '" + str + "'");
+	}
+	catch (const out_of_range&)
+	{
+	    throw runtime_error("stomp error: content-length value out of range'" + str + "'");
+	}
+    }
 
 
     Message
@@ -78,13 +111,16 @@ namespace Stomp
 			{
 			    vector<char> buf(content_length);
 			    is.read(buf.data(), content_length);
+			    if (!is)
+				throw runtime_error("stomp error: premature end of body");
+
 			    msg.body.assign(buf.data(), content_length);
 			}
 
 			// still read the \0 that terminates the frame
 			char buf2 = '-';
 			is.read(&buf2, 1);
-			if (buf2 != '\0')
+			if (!is || buf2 != '\0')
 			    throw runtime_error("stomp error: missing \\0 at frame end");
 		    }
 		    else
@@ -106,7 +142,7 @@ namespace Stomp
 		    if (key == "content-length")
 		    {
 			has_content_length = true;
-			content_length = stol(value.c_str());
+			content_length = parse_content_length(value);
 		    }
 
 		    msg.headers[key] = value;
