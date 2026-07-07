@@ -78,6 +78,16 @@ sync_source() {
 }
 
 build_in_vm() {
+    # Restoring the clean-install snapshot also restores the guest clock to
+    # snapshot-creation time, which may be hours behind wall-clock. rsync -a
+    # preserves the host's (current) mtimes, so every source file then looks
+    # "in the future" to the VM and maintainer-mode make loops forever
+    # regenerating Makefiles (notably with automake >= 1.18 on Tumbleweed).
+    # Sync the guest clock to the host before building so source mtimes are in
+    # the past.
+    info "Syncing VM clock to host before build..."
+    vm_ssh "timedatectl set-ntp false 2>/dev/null; date -u -s '$(date -u '+%Y-%m-%d %H:%M:%S')' >/dev/null" || true
+
     info "Building snapper inside VM..."
     vm_ssh bash -ex <<SCRIPT
 cd /root/snapper
