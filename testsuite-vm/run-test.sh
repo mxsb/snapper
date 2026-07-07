@@ -119,11 +119,31 @@ cmd_install() {
     rm -f "$ks_tmp" "$ay_tmp" "$ps_tmp"
     trap - ERR
 
-    if ! vm_running "$VM_NAME"; then
-        info "Installation complete. Starting VM..."
-        $VIRSH start "$VM_NAME"
-    fi
-    wait_for_ssh
+    # AutoYaST's <final_halt> runs a "zzz_halt" init script at the end of its
+    # first-boot second stage, powering the VM off. The system is fully
+    # installed by then but needs another boot to come up normally. We expect
+    # at most two boots (the second-stage halt, then a clean boot), so allow a
+    # small number of (re)starts and fail loudly if the VM keeps halting.
+    local max_starts=3 starts=0
+    info "Booting installed system (may halt once for AutoYaST second stage)..."
+    local boot_start=$SECONDS
+    while (( SECONDS - boot_start < 900 )); do
+        if ! vm_running "$VM_NAME"; then
+            (( starts++ ))
+            if (( starts > max_starts )); then
+                die "VM halted $((starts - 1)) times without becoming SSH-reachable (see $SERIAL_LOG)"
+            fi
+            info "VM is shut off; start attempt $starts/$max_starts..."
+            $VIRSH start "$VM_NAME"
+        fi
+        if ssh -q "${SSH_OPTS[@]}" -o ConnectTimeout=5 -p "$SSH_PORT" \
+               root@localhost true 2>/dev/null; then
+            info "SSH is up ($(( SECONDS - boot_start ))s)."
+            break
+        fi
+        sleep 5
+    done
+    vm_ssh true 2>/dev/null || die "SSH did not come up after install (see $SERIAL_LOG)"
 
     if [[ -f "$DISTRO_DIR/post-install.sh" ]]; then
 	info "Running post-install fixups..."
