@@ -163,6 +163,35 @@ cmd_build() {
     info "Build complete."
 }
 
+run_rollback_script() {
+    local script="$1"
+    local output
+    output=$(vm_ssh bash -s < "$SCRIPT_DIR/$script")
+    echo "$output"
+
+    MARKER=$(echo "$output" | grep '^MARKER_FILE=' | cut -d= -f2)
+    [[ -n "$MARKER" ]] || die "Could not extract marker file path from $script output"
+}
+
+reboot_and_verify_marker() {
+    local marker="$1" what="$2"
+
+    info "Rebooting VM to verify $what..."
+    : > "$SERIAL_LOG"
+    vm_ssh systemctl reboot || true
+    sleep 5
+    if ! wait_for_ssh 600 soft; then
+        info "Post-rollback boot did not come up — last serial output:"
+        tail -n 40 "$SERIAL_LOG" 2>/dev/null || true
+        die "FAIL: SSH did not return after $what reboot (see $SERIAL_LOG)"
+    fi
+
+    if vm_ssh test -f "$marker"; then
+        die "FAIL: $marker still exists after reboot — $what did not take effect"
+    fi
+    info "PASS: $marker is gone after reboot. Verified: $what."
+}
+
 cmd_test() {
     if ! $VIRSH snapshot-list "$VM_NAME" --name 2>/dev/null | grep -q '^clean-install$'; then
         info "No clean-install snapshot found, running install first..."
@@ -176,28 +205,12 @@ cmd_test() {
     build_in_vm
 
     info "Running rollback test..."
-    local output
-    output=$(vm_ssh bash -s < "$SCRIPT_DIR/test-rollback.sh")
-    echo "$output"
+    run_rollback_script test-rollback.sh
+    reboot_and_verify_marker "$MARKER" "rollback"
 
-    local marker
-    marker=$(echo "$output" | grep '^MARKER_FILE=' | cut -d= -f2)
-    [[ -n "$marker" ]] || die "Could not extract marker file path from test output"
-
-    info "Rebooting VM to verify rollback..."
-    : > "$SERIAL_LOG"
-    vm_ssh systemctl reboot || true
-    sleep 5
-    if ! wait_for_ssh 600 soft; then
-        info "Post-rollback boot did not come up — last serial output:"
-        tail -n 40 "$SERIAL_LOG" 2>/dev/null || true
-        die "FAIL: SSH did not return after rollback reboot (see $SERIAL_LOG)"
-    fi
-
-    if vm_ssh test -f "$marker"; then
-        die "FAIL: $marker still exists after reboot — rollback did not take effect"
-    fi
-    info "PASS: $marker is gone after reboot. Rollback verified."
+    info "Running second rollback cycle (repeated rollback, .rollback.N collision)..."
+    run_rollback_script test-rollback2.sh
+    reboot_and_verify_marker "$MARKER" "second rollback"
 
     $VIRSH shutdown "$VM_NAME" 2>/dev/null || true
 }
