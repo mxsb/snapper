@@ -15,7 +15,7 @@ echo "=== Snapper config ==="
 snapper --no-dbus -c root get-config | grep -iE 'SUBVOLUME|ROLLBACK' || true
 
 echo "=== Verify detection ==="
-SUBVOL=$(awk '/ \/ /{for(i=1;i<=NF;i++) if($i ~ /subvol=/) print $i}' /proc/mounts)
+SUBVOL=$(awk '$2 == "/" && $3 == "btrfs" {n=split($4,a,","); for(i=1;i<=n;i++) if (a[i] ~ /^subvol=/) print a[i]}' /proc/mounts)
 echo "Root subvol option: $SUBVOL"
 
 echo "=== Create pre-rollback snapshot ==="
@@ -25,8 +25,24 @@ echo "Snapshot number: $PRE"
 echo "=== Create post-snapshot marker ==="
 echo "this-should-disappear-after-rollback" > /test-marker-$$
 
+# Top-level named subvol mount (e.g. subvol=@root) - not "/", no nested path
+SUBVOL_NAME="${SUBVOL#subvol=}"
+SUBVOL_NAME="${SUBVOL_NAME#/}"
+if [ -n "$SUBVOL_NAME" ] && [[ "$SUBVOL_NAME" != */* ]]; then
+    echo "=== Verify warning for explicit --ambit classic on named subvolume '$SUBVOL_NAME' ==="
+    OUT=$(snapper --no-dbus --ambit classic -c root rollback -d "ambit-classic-warning-test" "$PRE" 2>&1)
+    echo "$OUT"
+    echo "$OUT" | grep -q "will not take effect"
+else
+    echo "=== No top-level named subvolume - skipping --ambit classic warning check ==="
+fi
+
 echo "=== Rollback ==="
-snapper --no-dbus -c root rollback "$PRE"
+OUT=$(snapper --no-dbus -c root rollback "$PRE" 2>&1)
+echo "$OUT"
+
+echo "=== Verify no spurious warning from the default rollback ==="
+! echo "$OUT" | grep -q "will not take effect"
 
 echo "=== Verify rollback artifacts ==="
 DEV=$(findmnt -n -o SOURCE / | sed 's/\[.*$//')
