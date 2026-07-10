@@ -212,6 +212,9 @@ cmd_test() {
     run_rollback_script test-rollback2.sh
     reboot_and_verify_marker "$MARKER" "second rollback"
 
+    info "Running transactional ambit regression test..."
+    vm_ssh bash -s < "$SCRIPT_DIR/test-rollback-transactional.sh"
+
     $VIRSH shutdown "$VM_NAME" 2>/dev/null || true
 }
 
