@@ -214,6 +214,10 @@ cmd_test() {
     run_rollback_script test-rollback2.sh
     reboot_and_verify_marker "$MARKER" "second rollback"
 
+    info "Running third rollback cycle (ROLLBACK_BACKUP_LIMIT retention)..."
+    run_rollback_script test-rollback3.sh
+    reboot_and_verify_marker "$MARKER" "third rollback"
+
     info "Running transactional ambit regression test..."
     vm_ssh bash -s < "$SCRIPT_DIR/test-rollback-transactional.sh"
 

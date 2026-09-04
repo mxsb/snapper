@@ -57,6 +57,17 @@ ls /.snapshots/*/info.xml >/dev/null 2>&1 || \
     { echo "FAIL: no snapshots visible under /.snapshots after rollback (before reboot)"; exit 1; }
 echo "Snapper is still functional before reboot."
 
+echo "=== Verify snapper can create and delete snapshots before reboot ==="
+# The re-mounted .snapshots must be writable, not just readable: create then
+# delete a snapshot on the running (old) root before the reboot.
+NEWSNAP=$(snapper --no-dbus -c root create -d "post-rollback-write-test" -p)
+test -e "/.snapshots/$NEWSNAP/info.xml" || \
+    { echo "FAIL: snapshot $NEWSNAP created after rollback is not visible under /.snapshots"; exit 1; }
+snapper --no-dbus -c root delete "$NEWSNAP"
+! test -e "/.snapshots/$NEWSNAP/info.xml" || \
+    { echo "FAIL: snapshot $NEWSNAP still present after delete"; exit 1; }
+echo "Snapper create/delete works on the re-mounted .snapshots before reboot."
+
 echo "=== Verify rollback artifacts ==="
 DEV=$(findmnt -n -o SOURCE / | sed 's/\[.*$//')
 TOPMNT=$(mktemp -d)
