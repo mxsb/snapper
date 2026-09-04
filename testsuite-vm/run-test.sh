@@ -11,6 +11,7 @@ usage() {
     echo ""
     echo "Commands:"
     echo "  test      Build snapper and run rollback test (default, auto-installs if needed)"
+    echo "  extras    Build snapper and run extra scenario tests (quota, SELinux enforcing)"
     echo "  install   Create VM from ISO (first time only)"
     echo "  build     Copy source from host and build snapper in VM"
     echo "  ssh       Open SSH session to VM"
@@ -230,6 +231,43 @@ cmd_ssh() {
     ssh "${SSH_OPTS[@]}" -p "$SSH_PORT" root@localhost
 }
 
+# Extra scenario tests that each need a clean, freshly built system (they change
+# global state - quota, SELinux mode - and do their own single rollback, so they
+# are not part of the reboot-driven cycles in cmd_test). Build once, snapshot,
+# and run each from that snapshot.
+cmd_extras() {
+    if ! $VIRSH snapshot-list "$VM_NAME" --name 2>/dev/null | grep -q '^clean-install$'; then
+        info "No clean-install snapshot found, running install first..."
+        cmd_install
+    fi
+
+    restore_vm "$VM_NAME" "clean-install"
+    $VIRSH start "$VM_NAME" 2>/dev/null || true
+    wait_for_ssh
+    sync_source
+    build_in_vm
+
+    $VIRSH snapshot-delete "$VM_NAME" extras-built >/dev/null 2>&1 || true
+    $VIRSH snapshot-create-as "$VM_NAME" extras-built >/dev/null
+
+    run_extra() {
+        local script="$1" what="$2"
+        info "Running extra test: $what..."
+        restore_vm "$VM_NAME" extras-built
+        $VIRSH start "$VM_NAME" 2>/dev/null || true
+        wait_for_ssh
+        vm_ssh bash -s < "$SCRIPT_DIR/$script"
+        info "PASS: $what"
+    }
+
+    run_extra test-rollback-quota.sh "btrfs quota rollback"
+    run_extra test-rollback-selinux.sh "SELinux enforcing rollback"
+
+    $VIRSH snapshot-delete "$VM_NAME" extras-built >/dev/null 2>&1 || true
+    $VIRSH shutdown "$VM_NAME" 2>/dev/null || true
+    info "Extra scenario tests passed."
+}
+
 cmd_destroy() {
     destroy_vm "$VM_NAME"
     rm -f "$DISK_IMG"
@@ -240,6 +278,7 @@ case "$COMMAND" in
     install) cmd_install ;;
     build)   cmd_build ;;
     test)    cmd_test ;;
+    extras)  cmd_extras ;;
     ssh)     cmd_ssh ;;
     destroy) cmd_destroy ;;
     *)       usage ;;
