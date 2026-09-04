@@ -21,9 +21,17 @@ unattended install, builds snapper from the host source tree, performs a
 # Other commands:
 ./run-test.sh <distro> install   # Create VM from ISO (first time only)
 ./run-test.sh <distro> build     # Sync source + build snapper in VM
+./run-test.sh <distro> extras    # Extra scenario tests (btrfs quota, SELinux enforcing)
 ./run-test.sh <distro> ssh       # Open SSH session to VM
 ./run-test.sh <distro> destroy   # Remove VM and disk image
 ```
+
+The `test` command runs three rollback cycles (basic rollback, a repeated
+rollback that forces the `.rollback.svid.N` fallback, and a third cycle that
+checks `ROLLBACK_BACKUP_LIMIT` retention) each verified across a reboot, plus a
+transactional-ambit regression. The `extras` command runs scenario tests that
+each need a clean, freshly built system: a rollback with btrfs quota enabled and
+a rollback under SELinux enforcing.
 
 ## Distros and Rollback Methods
 
@@ -37,8 +45,13 @@ unattended install, builds snapper from the host source tree, performs a
 
 ```
 run-all.sh                  # Run all distros in parallel
-run-test.sh                 # Main test driver (install/build/test/ssh/destroy)
-test-rollback.sh            # Runs inside the VM: create snapshot, rollback, verify
+run-test.sh                 # Main test driver (install/build/test/extras/ssh/destroy)
+test-rollback.sh            # Cycle 1: create snapshot, rollback, verify (+ pre-reboot writes)
+test-rollback2.sh           # Cycle 2: repeated rollback, .rollback.svid.N fallback
+test-rollback3.sh           # Cycle 3: ROLLBACK_BACKUP_LIMIT retention
+test-rollback-transactional.sh  # Transactional-ambit regression (set-default systems)
+test-rollback-quota.sh      # Extra: rollback with btrfs quota enabled
+test-rollback-selinux.sh    # Extra: rollback under SELinux enforcing
 lib/common.sh               # Shared helpers (SSH, build, sync, snapshots)
 distros/<name>/config.sh    # VM config (name, ISO URL, SSH port, build flags)
 distros/<name>/*.xml|*.ks|*.cfg  # Unattended installer profile
