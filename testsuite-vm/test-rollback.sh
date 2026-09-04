@@ -44,6 +44,19 @@ echo "$OUT"
 echo "=== Verify no spurious warning from the default rollback ==="
 ! echo "$OUT" | grep -q "will not take effect"
 
+echo "=== Verify snapper still works after rollback, before reboot ==="
+# Regression test for the report that on a subvol-rename rollback /.snapshots
+# disappears until the next reboot, leaving snapper unusable on the running
+# system. The rollback moves the nested .snapshots subvolume into the new root;
+# it must keep /.snapshots working on the still-running old root as well.
+echo "--- findmnt /.snapshots ---"; findmnt /.snapshots || echo "(/.snapshots is not a separate mount)"
+echo "--- /.snapshots contents ---"; ls -la /.snapshots 2>&1 || true
+echo "--- snapper list (must succeed) ---"
+snapper --no-dbus -c root list
+ls /.snapshots/*/info.xml >/dev/null 2>&1 || \
+    { echo "FAIL: no snapshots visible under /.snapshots after rollback (before reboot)"; exit 1; }
+echo "Snapper is still functional before reboot."
+
 echo "=== Verify rollback artifacts ==="
 DEV=$(findmnt -n -o SOURCE / | sed 's/\[.*$//')
 TOPMNT=$(mktemp -d)
