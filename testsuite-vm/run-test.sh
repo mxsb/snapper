@@ -129,7 +129,9 @@ cmd_install() {
     local boot_start=$SECONDS
     while (( SECONDS - boot_start < 900 )); do
         if ! vm_running "$VM_NAME"; then
-            (( starts++ ))
+            # pre-increment: (( starts++ )) evaluates to 0 on the first pass and
+            # would abort the script under `set -e`.
+            (( ++starts ))
             if (( starts > max_starts )); then
                 die "VM halted $((starts - 1)) times without becoming SSH-reachable (see $SERIAL_LOG)"
             fi
