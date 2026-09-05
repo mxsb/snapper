@@ -7,10 +7,8 @@ rm -f /var/lib/YaST2/runme_at_boot /var/lib/YaST2/reconfig_system
 rm -f /var/lib/YaST2/second_stage_failed
 rm -f /etc/install.inf
 
-# pam_systemd's varlink call to systemd-logind times out (120s) in minimal VMs.
-# Disable PAM for sshd since we only use key-based auth.
-mkdir -p /etc/ssh/sshd_config.d
-grep -q 'UsePAM no' /etc/ssh/sshd_config.d/99-snapper-test.conf 2>/dev/null || \
-    echo "UsePAM no" >> /etc/ssh/sshd_config.d/99-snapper-test.conf
+# Note: do NOT set "UsePAM no" here. With the split sshd-session (OpenSSH 9.8+)
+# it makes sshd reject root as "account is locked", breaking all logins. PAM is
+# enabled in setup-ssh.sh instead; logind is up and login is instant.
 
 hostnamectl set-hostname snapper-test
