@@ -127,7 +127,7 @@
       <package>gcc-c++</package>
       <package>gettext-tools</package>
       <package>glibc-locale</package>
-      <package>libjson-c-devel</package>
+      <package>json-c-devel</package>
       <package>libacl-devel</package>
       <package>libmount-devel</package>
       <package>libtool</package>
@@ -180,7 +180,12 @@ echo "nameserver 9.9.9.9" > /etc/resolv.conf
 mkdir -p /etc/ssh/sshd_config.d
 echo "PermitRootLogin yes" > /etc/ssh/sshd_config.d/99-snapper-test.conf
 echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config.d/99-snapper-test.conf
-echo "UsePAM no" >> /etc/ssh/sshd_config.d/99-snapper-test.conf
+# Keep PAM enabled. With the split sshd-session (OpenSSH 9.8+), "UsePAM no"
+# makes sshd do its own account check and reject root as "account is locked"
+# (even with a valid password/key), breaking all logins. logind is up and
+# login is instant here, so the old "UsePAM no" workaround for the pam_systemd
+# timeout is both unnecessary and harmful.
+echo "UsePAM yes" >> /etc/ssh/sshd_config.d/99-snapper-test.conf
 ]]></source>
       </script>
       <script>
