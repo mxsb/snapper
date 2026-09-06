@@ -61,6 +61,8 @@ cmd_install() {
     local ks_tmp="$SCRIPT_DIR/kickstart.ks"
     local ay_tmp="$SCRIPT_DIR/autoyast.xml"
     local ps_tmp="$SCRIPT_DIR/preseed.cfg"
+    local seed_iso="$SCRIPT_DIR/ubuntu-seed.iso"
+    local location_arg="$ISO_DIR/$ISO_FILE"
 
     if [[ -f "$DISTRO_DIR/kickstart.ks" ]]; then
         prepare_installer_config "$DISTRO_DIR/kickstart.ks" "$ks_tmp"
@@ -77,11 +79,26 @@ cmd_install() {
         info "Prepared preseed: $ps_tmp ($(wc -c < "$ps_tmp") bytes)"
         installer_args+=(--initrd-inject="$ps_tmp")
         installer_args+=(--extra-args="auto=true priority=critical file=/preseed.cfg console=ttyS0 nameserver=9.9.9.9")
+    elif [[ -f "$DISTRO_DIR/user-data" ]]; then
+        # Ubuntu subiquity autoinstall via a NoCloud "cidata" seed ISO plus the
+        # "autoinstall" kernel arg. The live-server ISO boots its casper
+        # kernel/initrd, so point --location at those explicitly.
+        local seed_dir
+        seed_dir=$(mktemp -d)
+        prepare_installer_config "$DISTRO_DIR/user-data" "$seed_dir/user-data"
+        : > "$seed_dir/meta-data"
+        info "Prepared autoinstall user-data ($(wc -c < "$seed_dir/user-data") bytes)"
+        genisoimage -quiet -output "$seed_iso" -volid cidata -joliet -rock \
+            "$seed_dir/user-data" "$seed_dir/meta-data"
+        rm -rf "$seed_dir"
+        location_arg="$ISO_DIR/$ISO_FILE,kernel=casper/vmlinuz,initrd=casper/initrd"
+        installer_args+=(--disk "path=$seed_iso,device=cdrom")
+        installer_args+=(--extra-args="autoinstall console=ttyS0")
     else
         die "No installer config found in $DISTRO_DIR"
     fi
 
-    trap 'info "Install failed, cleaning up..."; destroy_vm "$VM_NAME"; rm -f "$DISK_IMG" "$ks_tmp" "$ay_tmp" "$ps_tmp"' ERR
+    trap 'info "Install failed, cleaning up..."; destroy_vm "$VM_NAME"; rm -f "$DISK_IMG" "$ks_tmp" "$ay_tmp" "$ps_tmp" "$seed_iso"' ERR
 
     : > "$SERIAL_LOG"
     local console_args=(--graphics none --console pty,target_type=serial)
@@ -96,7 +113,7 @@ cmd_install() {
         --vcpus "$VM_CPUS" \
         --disk "path=$DISK_IMG,size=$VM_DISK,format=qcow2" \
         --os-variant "$OS_VARIANT" \
-        --location "$ISO_DIR/$ISO_FILE" \
+        --location "$location_arg" \
         --network passt,portForward="${SSH_PORT}:22" \
         --serial "file,path=$SERIAL_LOG" \
         --noreboot \
@@ -117,7 +134,13 @@ cmd_install() {
         done
     fi
 
-    rm -f "$ks_tmp" "$ay_tmp" "$ps_tmp"
+    # Detach the Ubuntu autoinstall seed CD before deleting it, otherwise
+    # restarting the VM fails on the dangling reference (and the installed
+    # system must not re-read the NoCloud seed on later boots).
+    if [[ -f "$seed_iso" ]]; then
+        virt-xml --connect qemu:///session "$VM_NAME" --remove-device --disk "path=$seed_iso" 2>/dev/null || true
+    fi
+    rm -f "$ks_tmp" "$ay_tmp" "$ps_tmp" "$seed_iso"
     trap - ERR
 
     # AutoYaST's <final_halt> runs a "zzz_halt" init script at the end of its

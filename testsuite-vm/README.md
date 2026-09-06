@@ -40,6 +40,12 @@ a rollback under SELinux enforcing.
 | tumbleweed | 2222 | set-default | AutoYaST |
 | debian13 | 2223 | subvol-rename | preseed |
 | fedora43 | 2224 | subvol-rename | kickstart |
+| ubuntu2604 | 2225 | subvol-rename | subiquity autoinstall |
+
+Ubuntu's installer (subiquity/curtin) cannot create btrfs subvolumes, so its
+profile installs a plain btrfs root and converts it to a named `@` subvolume in
+`late-commands` (snapshot into `@`, set the default subvolume, fix fstab and
+grub). The autoinstall config is delivered as a NoCloud "cidata" seed ISO.
 
 ## File Structure
 
@@ -54,7 +60,7 @@ test-rollback-quota.sh      # Extra: rollback with btrfs quota enabled
 test-rollback-selinux.sh    # Extra: rollback under SELinux enforcing
 lib/common.sh               # Shared helpers (SSH, build, sync, snapshots)
 distros/<name>/config.sh    # VM config (name, ISO URL, SSH port, build flags)
-distros/<name>/*.xml|*.ks|*.cfg  # Unattended installer profile
+distros/<name>/*.xml|*.ks|*.cfg|user-data  # Unattended installer profile
 distros/<name>/post-install.sh   # Optional post-install fixups
 logs/                       # Serial logs and per-run logs
 .ssh/                       # SSH key pair for VM access (auto-generated)
