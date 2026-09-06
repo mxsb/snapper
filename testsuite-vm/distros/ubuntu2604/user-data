@@ -1,0 +1,110 @@
+#cloud-config
+autoinstall:
+  version: 1
+  locale: en_US.UTF-8
+  keyboard:
+    layout: us
+  refresh-installer:
+    update: false
+  network:
+    version: 2
+    ethernets:
+      zz-eth:
+        match:
+          name: "e*"
+        dhcp4: true
+        nameservers:
+          addresses: [9.9.9.9]
+  identity:
+    hostname: snapper-test
+    username: ubuntu
+    # crypted password for 'snapper-test'
+    password: "$6$CwgYgms7WXKSQp5R$uxNLE9VMn6NJqCVbc1EaXs5s4yiVka3GjbDALAYZWNAmXzcrJ.V6LCx8cW1jg5eVwGf3Vh8Bg.Co67FefoYsC."
+  ssh:
+    install-server: true
+    allow-pw: true
+  # subiquity/curtin cannot create btrfs subvolumes, so install to a plain
+  # btrfs root here (curtin handles this fine) and convert it to a named @
+  # subvolume in late-commands - the documented workaround.
+  storage:
+    config:
+      - {type: disk, id: disk0, path: /dev/vda, ptable: gpt, wipe: superblock-recursive, grub_device: true}
+      - {type: partition, id: p1, device: disk0, size: 1M, flag: bios_grub}
+      - {type: partition, id: p2, device: disk0, size: 2G}
+      - {type: format, id: fs_boot, volume: p2, fstype: ext4}
+      - {type: mount, id: mnt_boot, device: fs_boot, path: /boot}
+      - {type: partition, id: p3, device: disk0, size: -1}
+      - {type: format, id: fs_root, volume: p3, fstype: btrfs}
+      - {type: mount, id: mnt_root, device: fs_root, path: /}
+  packages:
+    - openssh-server
+    - btrfs-progs
+    - acl
+    - rsync
+    - autoconf
+    - automake
+    - libtool
+    - make
+    - g++
+    - gettext
+    - libboost-dev
+    - libboost-thread-dev
+    - libboost-test-dev
+    - libxml2-dev
+    - zlib1g-dev
+    - libdbus-1-dev
+    - libjson-c-dev
+    - libpam0g-dev
+    - xsltproc
+    - docbook-xsl
+    - locales-all
+    - libncurses-dev
+    - libacl1-dev
+    - libmount-dev
+    - libbtrfsutil-dev
+    - libbtrfs-dev
+  late-commands:
+    # Customise the installed system (still the plain top-level root).
+    - curtin in-target -- bash -c "mkdir -p /root/.ssh && printf '%s\n' '@@SSH_PUBKEY@@' > /root/.ssh/authorized_keys && chmod 700 /root/.ssh && chmod 600 /root/.ssh/authorized_keys"
+    - curtin in-target -- bash -c "mkdir -p /etc/ssh/sshd_config.d && printf 'PermitRootLogin yes\nPasswordAuthentication yes\n' > /etc/ssh/sshd_config.d/99-snapper-test.conf"
+    - curtin in-target -- bash -c "sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT=\"console=tty0 console=ttyS0,115200n8\"/' /etc/default/grub; echo 'GRUB_TERMINAL=\"console serial\"' >> /etc/default/grub; echo 'GRUB_SERIAL_COMMAND=\"serial --speed=115200 --unit=0\"' >> /etc/default/grub"
+    # Convert the installed root into a named @ subvolume, then point fstab, the
+    # btrfs default subvolume and grub at @. Logged to serial for debugging.
+    - |
+      exec > /dev/ttyS0 2>&1
+      set -eux
+      echo "=== LATE: convert btrfs root to subvol @ ==="
+      ROOTDEV=/dev/vda3
+      BOOTDEV=/dev/vda2
+      btrfs subvolume snapshot /target /target/@
+      # add subvol=@ to the root line in @'s fstab
+      awk '($2=="/" && $3=="btrfs" && $4 !~ /subvol=/){ $4=$4",subvol=@" } {print}' OFS="\t" /target/@/etc/fstab > /tmp/fstab.new
+      cp /tmp/fstab.new /target/@/etc/fstab
+      echo "--- new fstab ---"; grep -v '^#' /target/@/etc/fstab
+      # make @ the default subvolume
+      AID=$(btrfs subvolume list /target | awk '$NF=="@"{print $2}')
+      echo "@ subvol id: $AID"
+      btrfs subvolume set-default "$AID" /target
+      # regenerate grub for the @ layout by chrooting into @
+      mkdir -p /tmp/nr
+      mount -o subvol=@ "$ROOTDEV" /tmp/nr
+      mount "$BOOTDEV" /tmp/nr/boot
+      for d in dev proc sys run; do mount --bind /$d /tmp/nr/$d; done
+      chroot /tmp/nr update-grub
+      chroot /tmp/nr grub-install /dev/vda
+      for d in run sys proc dev; do umount /tmp/nr/$d; done
+      umount /tmp/nr/boot; umount /tmp/nr
+      echo "=== LATE: conversion done ==="
+  # On failure, dump the real error to the serial console (readable without root)
+  # and power off so the harness does not hang.
+  error-commands:
+    - |
+      exec > /dev/ttyS0 2>&1
+      echo "=== ERROR-COMMANDS: install failed, dumping diagnostics ==="
+      lsblk -f || true
+      echo "--- curtin logs ---"
+      tail -n 120 /var/log/curtin/install.log 2>/dev/null || echo "(no curtin install.log)"
+      for f in /var/crash/*.crash; do echo "== $f =="; grep -aiE 'Title:|Traceback|Error|Command|stderr|subvol|btrfs|mount|failed' "$f" 2>/dev/null | tail -60; done
+      echo "=== ERROR-COMMANDS DONE ==="
+      poweroff -f || systemctl poweroff -f || true
+  shutdown: poweroff
