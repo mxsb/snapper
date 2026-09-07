@@ -68,8 +68,9 @@ autoinstall:
     - curtin in-target -- bash -c "mkdir -p /root/.ssh && printf '%s\n' '@@SSH_PUBKEY@@' > /root/.ssh/authorized_keys && chmod 700 /root/.ssh && chmod 600 /root/.ssh/authorized_keys"
     - curtin in-target -- bash -c "mkdir -p /etc/ssh/sshd_config.d && printf 'PermitRootLogin yes\nPasswordAuthentication yes\n' > /etc/ssh/sshd_config.d/99-snapper-test.conf"
     - curtin in-target -- bash -c "sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT=\"console=tty0 console=ttyS0,115200n8\"/' /etc/default/grub; echo 'GRUB_TERMINAL=\"console serial\"' >> /etc/default/grub; echo 'GRUB_SERIAL_COMMAND=\"serial --speed=115200 --unit=0\"' >> /etc/default/grub"
-    # Convert the installed root into a named @ subvolume, then point fstab, the
-    # btrfs default subvolume and grub at @. Logged to serial for debugging.
+    # Convert the installed root into a named @ subvolume and point fstab and grub
+    # at @. The btrfs DEFAULT subvolume is left as the top-level (id 5), matching
+    # the subvol-rename convention on Fedora/Debian. Logged to serial for debugging.
     - |
       exec > /dev/ttyS0 2>&1
       set -eux
@@ -81,7 +82,7 @@ autoinstall:
       awk '($2=="/" && $3=="btrfs" && $4 !~ /subvol=/){ $4=$4",subvol=@" } {print}' OFS="\t" /target/@/etc/fstab > /tmp/fstab.new
       cp /tmp/fstab.new /target/@/etc/fstab
       echo "--- new fstab ---"; grep -v '^#' /target/@/etc/fstab
-      # make @ the default subvolume
+      # Temporarily make @ the default so update-grub picks up the @ layout.
       AID=$(btrfs subvolume list /target | awk '$NF=="@"{print $2}')
       echo "@ subvol id: $AID"
       btrfs subvolume set-default "$AID" /target
@@ -94,6 +95,15 @@ autoinstall:
       chroot /tmp/nr grub-install /dev/vda
       for d in run sys proc dev; do umount /tmp/nr/$d; done
       umount /tmp/nr/boot; umount /tmp/nr
+      # Reset the btrfs default to the top-level (id 5), the subvol-rename
+      # convention (Fedora/Debian). The system boots @ via grub rootflags=subvol=@
+      # and fstab, so the default is not needed for boot. Leaving @ as the default
+      # would make a rollback backup (the renamed former @) inherit the default,
+      # which btrfs then refuses to delete -- silently breaking
+      # ROLLBACK_BACKUP_LIMIT pruning (only the oldest backup is targeted, and it
+      # is the undeletable default).
+      btrfs subvolume set-default 5 /target
+      echo "--- btrfs default reset to top-level ---"; btrfs subvolume get-default /target
       echo "=== LATE: conversion done ==="
   # On failure, dump the real error to the serial console (readable without root)
   # and power off so the harness does not hang.
