@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/common.sh"
+source "$SCRIPT_DIR/lib/engine.sh"
 
 usage() {
     echo "Usage: $0 <distro> [command]"
@@ -10,8 +11,7 @@ usage() {
     echo "Distros: $(ls "$SCRIPT_DIR/distros/" | tr '\n' ' ')"
     echo ""
     echo "Commands:"
-    echo "  test      Build snapper and run rollback test (default, auto-installs if needed)"
-    echo "  extras    Build snapper and run extra scenario tests (quota, SELinux enforcing)"
+    echo "  test      Build snapper and run the rollback test engine (default, auto-installs if needed)"
     echo "  install   Create VM from ISO (first time only)"
     echo "  build     Copy source from host and build snapper in VM"
     echo "  ssh       Open SSH session to VM"
@@ -111,7 +111,7 @@ cmd_install() {
         --name "$VM_NAME" \
         --ram "$VM_RAM" \
         --vcpus "$VM_CPUS" \
-        --disk "path=$DISK_IMG,size=$VM_DISK,format=qcow2" \
+        --disk "path=$DISK_IMG,size=$VM_DISK,format=qcow2,cache=none" \
         --os-variant "$OS_VARIANT" \
         --location "$location_arg" \
         --network passt,portForward="${SSH_PORT}:22" \
@@ -189,106 +189,17 @@ cmd_build() {
     info "Build complete."
 }
 
-run_rollback_script() {
-    local script="$1"
-    local output
-    output=$(vm_ssh bash -s < "$SCRIPT_DIR/$script")
-    echo "$output"
-
-    MARKER=$(echo "$output" | grep '^MARKER_FILE=' | cut -d= -f2)
-    [[ -n "$MARKER" ]] || die "Could not extract marker file path from $script output"
-}
-
-reboot_and_verify_marker() {
-    local marker="$1" what="$2"
-
-    info "Rebooting VM to verify $what..."
-    : > "$SERIAL_LOG"
-    vm_ssh systemctl reboot || true
-    sleep 5
-    if ! wait_for_ssh 600 soft; then
-        info "Post-rollback boot did not come up — last serial output:"
-        tail -n 40 "$SERIAL_LOG" 2>/dev/null || true
-        die "FAIL: SSH did not return after $what reboot (see $SERIAL_LOG)"
-    fi
-
-    if vm_ssh test -f "$marker"; then
-        die "FAIL: $marker still exists after reboot — $what did not take effect"
-    fi
-    info "PASS: $marker is gone after reboot. Verified: $what."
-}
-
+# Build snapper and run the pluggable rollback test engine (lib/engine.sh):
+# discovers cases/ and runs those applicable to this distro's ROLLBACK_METHOD,
+# each from a fresh 'built' snapshot, with a TAP-style report.
 cmd_test() {
-    if ! $VIRSH snapshot-list "$VM_NAME" --name 2>/dev/null | grep -q '^clean-install$'; then
-        info "No clean-install snapshot found, running install first..."
-        cmd_install
-    fi
-
-    restore_vm "$VM_NAME" "clean-install"
-    $VIRSH start "$VM_NAME" 2>/dev/null || true
-    wait_for_ssh
-    sync_source
-    build_in_vm
-
-    info "Running rollback test..."
-    run_rollback_script test-rollback.sh
-    reboot_and_verify_marker "$MARKER" "rollback"
-
-    info "Running second rollback cycle (repeated rollback, .rollback.N collision)..."
-    run_rollback_script test-rollback2.sh
-    reboot_and_verify_marker "$MARKER" "second rollback"
-
-    info "Running third rollback cycle (ROLLBACK_BACKUP_LIMIT retention)..."
-    run_rollback_script test-rollback3.sh
-    reboot_and_verify_marker "$MARKER" "third rollback"
-
-    info "Running transactional ambit regression test..."
-    vm_ssh bash -s < "$SCRIPT_DIR/test-rollback-transactional.sh"
-
-    $VIRSH shutdown "$VM_NAME" 2>/dev/null || true
+    run_engine
 }
 
 cmd_ssh() {
     vm_running "$VM_NAME" || $VIRSH start "$VM_NAME"
     wait_for_ssh
     ssh "${SSH_OPTS[@]}" -p "$SSH_PORT" root@localhost
-}
-
-# Extra scenario tests that each need a clean, freshly built system (they change
-# global state - quota, SELinux mode - and do their own single rollback, so they
-# are not part of the reboot-driven cycles in cmd_test). Build once, snapshot,
-# and run each from that snapshot.
-cmd_extras() {
-    if ! $VIRSH snapshot-list "$VM_NAME" --name 2>/dev/null | grep -q '^clean-install$'; then
-        info "No clean-install snapshot found, running install first..."
-        cmd_install
-    fi
-
-    restore_vm "$VM_NAME" "clean-install"
-    $VIRSH start "$VM_NAME" 2>/dev/null || true
-    wait_for_ssh
-    sync_source
-    build_in_vm
-
-    $VIRSH snapshot-delete "$VM_NAME" extras-built >/dev/null 2>&1 || true
-    $VIRSH snapshot-create-as "$VM_NAME" extras-built >/dev/null
-
-    run_extra() {
-        local script="$1" what="$2"
-        info "Running extra test: $what..."
-        restore_vm "$VM_NAME" extras-built
-        $VIRSH start "$VM_NAME" 2>/dev/null || true
-        wait_for_ssh
-        vm_ssh bash -s < "$SCRIPT_DIR/$script"
-        info "PASS: $what"
-    }
-
-    run_extra test-rollback-quota.sh "btrfs quota rollback"
-    run_extra test-rollback-selinux.sh "SELinux enforcing rollback"
-
-    $VIRSH snapshot-delete "$VM_NAME" extras-built >/dev/null 2>&1 || true
-    $VIRSH shutdown "$VM_NAME" 2>/dev/null || true
-    info "Extra scenario tests passed."
 }
 
 cmd_destroy() {
@@ -301,7 +212,6 @@ case "$COMMAND" in
     install) cmd_install ;;
     build)   cmd_build ;;
     test)    cmd_test ;;
-    extras)  cmd_extras ;;
     ssh)     cmd_ssh ;;
     destroy) cmd_destroy ;;
     *)       usage ;;

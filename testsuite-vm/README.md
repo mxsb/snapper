@@ -21,17 +21,40 @@ unattended install, builds snapper from the host source tree, performs a
 # Other commands:
 ./run-test.sh <distro> install   # Create VM from ISO (first time only)
 ./run-test.sh <distro> build     # Sync source + build snapper in VM
-./run-test.sh <distro> extras    # Extra scenario tests (btrfs quota, SELinux enforcing)
 ./run-test.sh <distro> ssh       # Open SSH session to VM
 ./run-test.sh <distro> destroy   # Remove VM and disk image
 ```
 
-The `test` command runs three rollback cycles (basic rollback, a repeated
-rollback that forces the `.rollback.svid.N` fallback, and a third cycle that
-checks `ROLLBACK_BACKUP_LIMIT` retention) each verified across a reboot, plus a
-transactional-ambit regression. The `extras` command runs scenario tests that
-each need a clean, freshly built system: a rollback with btrfs quota enabled and
-a rollback under SELinux enforcing.
+## Test engine and cases
+
+`test` builds snapper once, snapshots the built VM, then runs the test **cases**
+in `cases/`, each from a fresh restore of that snapshot (unit-test isolation),
+and prints a TAP-style report. The engine (`lib/engine.sh`) is the only central
+logic; scenarios are self-contained plug-ins.
+
+Cases are grouped into **buckets** by the rollback method they target — there are
+no per-case annotations, the folder decides applicability:
+
+```
+cases/
+  _prelude.sh            # helpers prepended to every case
+  all/                   # method-agnostic; run on every distro
+  subvol-rename/         # run only where ROLLBACK_METHOD=subvol-rename
+  set-default/           # run only where ROLLBACK_METHOD=set-default
+```
+
+The engine runs `all/` + the bucket matching the distro's declared
+`ROLLBACK_METHOD` (from `config.sh` — ground truth, not auto-detected; snapper's
+own detection is tested by `all/10-detect-ambit.sh`). Conventions inside a case:
+
+- print `MARKER_FILE=<path>` → the engine reboots and asserts the file is **gone**
+  (the rollback took effect); `PERSIST_MARKER=<path>` → asserts it **survives**.
+- call `requires <cap>` (e.g. `requires selinux`) to self-skip where a capability
+  is absent.
+
+**Add a scenario**: drop one file in the right bucket. **Add a distro**: write its
+plugin + `ROLLBACK_METHOD` — no case changes. **Move where a case runs**: move the
+file between buckets.
 
 ## Distros and Rollback Methods
 
@@ -51,15 +74,14 @@ grub). The autoinstall config is delivered as a NoCloud "cidata" seed ISO.
 
 ```
 run-all.sh                  # Run all distros in parallel
-run-test.sh                 # Main test driver (install/build/test/extras/ssh/destroy)
-test-rollback.sh            # Cycle 1: create snapshot, rollback, verify (+ pre-reboot writes)
-test-rollback2.sh           # Cycle 2: repeated rollback, .rollback.svid.N fallback
-test-rollback3.sh           # Cycle 3: ROLLBACK_BACKUP_LIMIT retention
-test-rollback-transactional.sh  # Transactional-ambit regression (set-default systems)
-test-rollback-quota.sh      # Extra: rollback with btrfs quota enabled
-test-rollback-selinux.sh    # Extra: rollback under SELinux enforcing
+run-test.sh                 # Main test driver (install/build/test/ssh/destroy)
 lib/common.sh               # Shared helpers (SSH, build, sync, snapshots)
-distros/<name>/config.sh    # VM config (name, ISO URL, SSH port, build flags)
+lib/engine.sh               # Test engine: discovers cases, drives reboots, TAP report
+cases/_prelude.sh           # Helpers prepended to every case
+cases/all/                  # Method-agnostic cases (run on every distro)
+cases/subvol-rename/        # Cases for named-subvolume roots
+cases/set-default/          # Cases for default-subvolume roots
+distros/<name>/config.sh    # VM config (name, ISO URL, SSH port, ROLLBACK_METHOD, build flags)
 distros/<name>/*.xml|*.ks|*.cfg|user-data  # Unattended installer profile
 distros/<name>/post-install.sh   # Optional post-install fixups
 logs/                       # Serial logs and per-run logs
@@ -68,8 +90,9 @@ logs/                       # Serial logs and per-run logs
 
 ## Adding a New Distro
 
-1. Create `distros/<name>/config.sh` with VM_NAME, ISO_URL, SSH_PORT, etc.
-2. Add an installer profile (kickstart.ks, autoyast.xml, or preseed.cfg).
-   Use `@@SSH_PUBKEY@@` placeholder for the SSH public key.
+1. Create `distros/<name>/config.sh` with VM_NAME, ISO_URL, SSH_PORT,
+   `ROLLBACK_METHOD` (`subvol-rename` or `set-default`), etc.
+2. Add an installer profile (kickstart.ks, autoyast.xml, preseed.cfg, or a
+   subiquity `user-data`). Use the `@@SSH_PUBKEY@@` placeholder for the SSH key.
 3. Optionally add `post-install.sh` for post-install fixups.
-4. Run `./run-test.sh <name> test`.
+4. Run `./run-test.sh <name> test` — every applicable case runs automatically.

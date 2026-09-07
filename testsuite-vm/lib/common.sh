@@ -77,6 +77,26 @@ sync_source() {
         "$REPO_DIR/" "root@localhost:/root/snapper/"
 }
 
+# Evict the VM disk images and installer ISOs from the host page cache
+# (root-free, via posix_fadvise DONTNEED). qemu's default writeback caching and
+# readahead can leave ~10 GB of these files' pages resident; they are fully
+# reclaimable (`available` stays high) but push `free` low enough to trip the
+# host's background-task memory watchdog. Dropping them keeps `free` high without
+# touching the running guest.
+drop_vm_page_cache() {
+    python3 - "$ISO_DIR" "$DISK_DIR" <<'PY' 2>/dev/null || true
+import os, sys, glob
+for d in sys.argv[1:]:
+    for p in glob.glob(os.path.join(d, '*')):
+        try:
+            fd = os.open(p, os.O_RDONLY)
+            os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+            os.close(fd)
+        except OSError:
+            pass
+PY
+}
+
 build_in_vm() {
     # Restoring the clean-install snapshot also restores the guest clock to
     # snapshot-creation time, which may be hours behind wall-clock. rsync -a
@@ -88,23 +108,63 @@ build_in_vm() {
     info "Syncing VM clock to host before build..."
     vm_ssh "timedatectl set-ntp false 2>/dev/null; date -u -s '$(date -u '+%Y-%m-%d %H:%M:%S')' >/dev/null" || true
 
-    info "Building snapper inside VM..."
-    vm_ssh bash -ex <<SCRIPT
+    # Run the build as a transient systemd unit *inside* the guest so it is
+    # detached from this SSH session. If the host-side driver is killed (e.g. by
+    # the background-task memory watchdog) mid-compile, the build keeps running
+    # and we simply resume polling its sentinel file instead of losing it.
+    info "Launching detached in-VM build..."
+    local lib_expr='LIB=$(gcc -v 2>&1 | sed -n "s,.*--libdir=/usr/\([^ ]*\).*,\1,p"); LIB=${LIB:-lib}'
+    vm_ssh "cat > /root/build-snapper.sh" <<SCRIPT
+#!/bin/bash
+exec >/root/build.log 2>&1
+set -x
 cd /root/snapper
-make -f Makefile.repo all
-LIB=\$(gcc -v 2>&1 | sed -n 's,.*--libdir=/usr/\([^ ]*\).*,\1,p')
-LIB=\${LIB:-lib}
-./configure --prefix=/usr --libdir=/usr/\$LIB ${CONFIGURE_FLAGS:---enable-selinux --disable-ext4}
-make clean
-make -j\$(nproc)
-make install
-ldconfig
+rm -f /root/build.done
+if make -f Makefile.repo all &&
+   { $lib_expr; ./configure --prefix=/usr --libdir=/usr/\$LIB ${CONFIGURE_FLAGS:---enable-selinux --disable-ext4}; } &&
+   make clean &&
+   make -j\${MAKE_JOBS:-1} &&
+   make install &&
+   ldconfig; then
+    echo ok > /root/build.done
+else
+    echo "fail:\$?" > /root/build.done
+fi
 SCRIPT
+    vm_ssh 'rm -f /root/build.done /root/build.log; systemctl reset-failed snapper-build 2>/dev/null || true; systemd-run --unit=snapper-build --collect /bin/bash /root/build-snapper.sh' >/dev/null
+
+    info "Waiting for in-VM build to finish (polling; dropping page cache each tick)..."
+    local start=$SECONDS status=""
+    while (( SECONDS - start < 2400 )); do
+        drop_vm_page_cache
+        status=$(vm_ssh 'cat /root/build.done 2>/dev/null || true')
+        if [[ -n "$status" ]]; then
+            if [[ "$status" == ok ]]; then
+                info "Build complete (${SECONDS}s minus start = $(( SECONDS - start ))s)."
+                return 0
+            fi
+            info "Build FAILED ($status); tail of build log:"
+            vm_ssh 'tail -40 /root/build.log' || true
+            die "Build failed in VM (status=$status)"
+        fi
+        sleep 20
+    done
+    die "Build timed out after $(( SECONDS - start ))s"
+}
+
+# True if snapshot $2 exists on VM $1. Captures the list first, then greps: piping
+# virsh straight into `grep -q` lets grep short-circuit on an early match and
+# SIGPIPE-kill virsh (exit 141), which `set -o pipefail` reports as a failure even
+# though the snapshot was found.
+has_snapshot() {
+    local list
+    list=$($VIRSH snapshot-list "$1" --name 2>/dev/null) || true
+    grep -qx "$2" <<<"$list"
 }
 
 snapshot_vm() {
     local name="$1" snap_name="${2:-clean-install}"
-    if $VIRSH snapshot-list "$name" --name 2>/dev/null | grep -q "^${snap_name}$"; then
+    if has_snapshot "$name" "$snap_name"; then
         info "Snapshot '$snap_name' already exists."
         return
     fi
