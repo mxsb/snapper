@@ -3,8 +3,17 @@
 echo "=== rollback with btrfs quota enabled ($ROLLBACK_METHOD) ==="
 ensure_config
 
-echo "--- enable quota (snapper setup-quota) ---"
-snapper --no-dbus -c root setup-quota
+echo "--- ensure quota is enabled (snapper setup-quota) ---"
+# openSUSE ships snapper with btrfs quota already enabled, so setup-quota reports
+# the qgroup is already set. That is exactly the precondition this case wants, so
+# tolerate it and fail only on a different error.
+if ! snapper --no-dbus -c root setup-quota 2>/tmp/quota.err; then
+    if grep -qi 'already set' /tmp/quota.err; then
+        echo "quota already enabled: $(cat /tmp/quota.err)"
+    else
+        echo "FAIL: setup-quota failed:"; cat /tmp/quota.err; exit 1
+    fi
+fi
 snapper --no-dbus -c root get-config | grep -i qgroup || true
 btrfs qgroup show / 2>/dev/null | head || true
 
