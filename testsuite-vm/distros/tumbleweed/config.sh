@@ -8,3 +8,4 @@ VM_DISK=20
 OS_VARIANT="opensusetumbleweed"
 INSTALL_URL="https://download.opensuse.org/tumbleweed/repo/oss/"
 CONFIGURE_FLAGS="--enable-selinux --disable-ext4"
+ROLLBACK_METHOD="set-default"

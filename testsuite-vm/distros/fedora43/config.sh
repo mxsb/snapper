@@ -7,3 +7,4 @@ VM_CPUS=2
 VM_DISK=20
 OS_VARIANT="fedora43"
 CONFIGURE_FLAGS="--enable-selinux --disable-ext4"
+ROLLBACK_METHOD="subvol-rename"

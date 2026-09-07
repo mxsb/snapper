@@ -5,6 +5,7 @@ VM_CPUS=2
 VM_DISK=20
 OS_VARIANT="debian13"
 CONFIGURE_FLAGS="--disable-selinux --disable-ext4"
+ROLLBACK_METHOD="subvol-rename"
 
 # Debian removes superseded point releases from .../current/, so a pinned
 # ISO filename 404s after the next point release. Resolve the current

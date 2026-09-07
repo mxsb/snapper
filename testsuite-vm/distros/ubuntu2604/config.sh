@@ -8,3 +8,4 @@ VM_DISK=20
 # libosinfo may not know 26.04 yet; 25.10 gives the right virtio drivers.
 OS_VARIANT="ubuntu25.10"
 CONFIGURE_FLAGS="--disable-selinux --disable-ext4"
+ROLLBACK_METHOD="subvol-rename"
