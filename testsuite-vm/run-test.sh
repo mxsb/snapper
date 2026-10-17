@@ -58,10 +58,16 @@ cmd_install() {
     info "Creating VM '$VM_NAME'..."
 
     local installer_args=()
-    local ks_tmp="$SCRIPT_DIR/kickstart.ks"
-    local ay_tmp="$SCRIPT_DIR/autoyast.xml"
-    local ps_tmp="$SCRIPT_DIR/preseed.cfg"
-    local seed_iso="$SCRIPT_DIR/ubuntu-seed.iso"
+    # Per-distro staging dir: run-all.sh installs distros in parallel, and two
+    # distros of the same installer type must not overwrite each other's config
+    # before virt-install injects it. The file names stay fixed since the kernel
+    # args reference them inside the initrd.
+    local stage_dir="$SCRIPT_DIR/.install/$DISTRO"
+    mkdir -p "$stage_dir"
+    local ks_tmp="$stage_dir/kickstart.ks"
+    local ay_tmp="$stage_dir/autoyast.xml"
+    local ps_tmp="$stage_dir/preseed.cfg"
+    local seed_iso="$stage_dir/ubuntu-seed.iso"
     local location_arg="$ISO_DIR/$ISO_FILE"
 
     if [[ -f "$DISTRO_DIR/kickstart.ks" ]]; then

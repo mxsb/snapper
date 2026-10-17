@@ -2,6 +2,7 @@ iso/
 disks/
 logs/
 .ssh/
+.install/
 kickstart.ks
 autoyast.xml
 !/distros/*/kickstart.ks
