@@ -66,8 +66,15 @@ file between buckets.
 |--------|----------|----------------|-----------|
 | tumbleweed | 2222 | set-default | AutoYaST |
 | debian13 | 2223 | subvol-rename | preseed |
-| fedora43 | 2224 | subvol-rename | kickstart |
+| fedora44 | 2226 | subvol-rename | kickstart |
+| fedora44-cloud | 2227 | subvol-rename | kickstart |
 | ubuntu2604 | 2225 | subvol-rename | subiquity autoinstall |
+
+`fedora44` is a stock Anaconda layout (`root`, `home`), plus `systemd-container`
+so both `var/lib/portables` and `var/lib/machines` exist as nested subvolumes of
+`root` (a Workstation install has `machines`, a netinst one `portables`).
+`fedora44-cloud` follows the Fedora Cloud layout with a separate top-level `var`
+subvolume, so those nest under `var` instead.
 
 Ubuntu's installer (subiquity/curtin) cannot create btrfs subvolumes, so its
 profile installs a plain btrfs root and converts it to a named `@` subvolume in

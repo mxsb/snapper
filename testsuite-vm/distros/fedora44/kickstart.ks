@@ -14,7 +14,7 @@ rootpw --plaintext snapper-test
 selinux --permissive
 firewall --disabled
 
-url --url=https://dl.fedoraproject.org/pub/fedora/linux/releases/43/Everything/x86_64/os/
+url --url=https://dl.fedoraproject.org/pub/fedora/linux/releases/44/Everything/x86_64/os/
 
 bootloader --boot-drive=vda --append="console=tty0 console=ttyS0,115200n8"
 
@@ -31,6 +31,9 @@ btrfs /home --subvol --name=home LABEL=fedora
 @core
 openssh-server
 snapper
+# systemd-container ships the tmpfiles rule that creates /var/lib/machines as a
+# nested subvolume (as on a Workstation install), next to systemd's portables
+systemd-container
 btrfs-progs
 acl
 autoconf
