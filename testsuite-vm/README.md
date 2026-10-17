@@ -52,6 +52,10 @@ own detection is tested by `all/10-detect-ambit.sh`). Conventions inside a case:
 - call `requires <cap>` (e.g. `requires selinux`) to self-skip where a capability
   is absent.
 
+`CASE_FILTER=<glob>` runs only the matching cases (e.g.
+`CASE_FILTER='all/60-*' ./run-test.sh fedora44 test`); combine with `SKIP_BUILD=1`
+to reuse the existing `built` snapshot.
+
 **Add a scenario**: drop one file in the right bucket. **Add a distro**: write its
 plugin + `ROLLBACK_METHOD` — no case changes. **Move where a case runs**: move the
 file between buckets.

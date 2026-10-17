@@ -100,6 +100,12 @@ run_engine() {
         name="$rel"
         bucket="${rel%%/*}"
 
+        # CASE_FILTER (a glob on the case path, e.g. "all/60-*") runs a subset.
+        if [[ -n "${CASE_FILTER:-}" && "$rel" != $CASE_FILTER ]]; then
+            echo "ok $n - $name # SKIP not selected by CASE_FILTER"
+            skip=$((skip + 1)); continue
+        fi
+
         # A case applies if it's method-agnostic (all/) or matches this method.
         if [[ "$bucket" != "all" && "$bucket" != "$method" ]]; then
             echo "ok $n - $name # SKIP not applicable to method '$method'"
