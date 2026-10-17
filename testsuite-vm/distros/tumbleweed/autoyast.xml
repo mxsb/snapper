@@ -121,6 +121,7 @@
       <package>libboost_thread-devel</package>
       <package>libbtrfs-devel</package>
       <package>libbtrfsutil-devel</package>
+      <package>libopenssl-devel</package>
       <package>dbus-1-devel</package>
       <package>diffutils</package>
       <package>docbook-xsl-stylesheets</package>

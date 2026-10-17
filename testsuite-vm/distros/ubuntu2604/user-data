@@ -63,6 +63,7 @@ autoinstall:
     - libmount-dev
     - libbtrfsutil-dev
     - libbtrfs-dev
+    - libssl-dev
   late-commands:
     # Customise the installed system (still the plain top-level root).
     - curtin in-target -- bash -c "mkdir -p /root/.ssh && printf '%s\n' '@@SSH_PUBKEY@@' > /root/.ssh/authorized_keys && chmod 700 /root/.ssh && chmod 600 /root/.ssh/authorized_keys"

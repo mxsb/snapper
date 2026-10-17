@@ -38,6 +38,7 @@ automake
 awk
 boost-devel
 btrfs-progs-devel
+openssl-devel
 dbus-devel
 diffutils
 docbook-style-xsl
