@@ -124,7 +124,13 @@ build_in_vm() {
     # Sync the guest clock to the host before building so source mtimes are in
     # the past.
     info "Syncing VM clock to host before build..."
-    vm_ssh "timedatectl set-ntp false 2>/dev/null; date -u -s '$(date -u '+%Y-%m-%d %H:%M:%S')' >/dev/null" || true
+    # NTP is switched off only while setting the clock and restored afterwards:
+    # it would otherwise stay disabled in the 'built' snapshot, and on systems
+    # where units wait for time-sync.target (Arch: systemd-time-wait-sync ->
+    # pacman-init -> sshd) the guest would not come up after a reboot.
+    vm_ssh "ntp=\$(timedatectl show -p NTP --value 2>/dev/null)
+timedatectl set-ntp false 2>/dev/null; date -u -s '$(date -u '+%Y-%m-%d %H:%M:%S')' >/dev/null
+[ \"\$ntp\" = yes ] && timedatectl set-ntp true 2>/dev/null; true" || true
 
     # Run the build as a transient systemd unit *inside* the guest so it is
     # detached from this SSH session. If the host-side driver is killed (e.g. by
