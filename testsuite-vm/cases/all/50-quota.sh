@@ -28,7 +28,7 @@ snapper --no-dbus -c root list >/dev/null || { echo "FAIL: snapper unusable afte
 # not be in the snapshot qgroup: SPACE_LIMIT would count the live root as
 # snapshot space. Snapper only adds snapshots with a cleanup algorithm to it.
 echo "--- new root must not be in the snapshot qgroup ---"
-QGROUP=$(snapper --no-dbus -c root get-config | awk -F'│' '$1 ~ /^QGROUP/ {gsub(/ /,"",$2); print $2}')
+QGROUP=$(snapper --no-dbus -c root --csvout get-config | awk -F, '$1=="QGROUP" {print $2}')
 [ -n "$QGROUP" ] || { echo "FAIL: QGROUP not set after setup-quota"; exit 1; }
 T=$(toplevel_mount)
 if [ "$ROLLBACK_METHOD" = subvol-rename ]; then

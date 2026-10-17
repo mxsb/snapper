@@ -18,6 +18,16 @@ sed -i '/swapfile/d' /etc/fstab
 dev=$(findmnt -n -o SOURCE / | sed 's/\[.*$//')
 btrfs subvolume snapshot / /@
 mount -o subvol=@ "$dev" /mnt
+
+# The snapshot only holds placeholders for the subvolumes nested in the old
+# root. Recreate var/lib/portables and var/lib/machines as subvolumes in @, as
+# systemd-tmpfiles does on an install into @ (swap is dropped above).
+for p in var/lib/portables var/lib/machines swap; do
+    if [ "$(stat -c %i "/mnt/$p" 2>/dev/null)" = 2 ]; then
+        rmdir "/mnt/$p"
+        case "$p" in var/lib/*) btrfs subvolume create "/mnt/$p"; chmod 0700 "/mnt/$p" ;; esac
+    fi
+done
 # /efi is a systemd automount (findmnt shows systemd-1): mount its fstab source
 if efi=$(findmnt --fstab -n -o SOURCE /efi); then
     mount --mkdir "$efi" /mnt/efi
