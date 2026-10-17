@@ -55,6 +55,8 @@ own detection is tested by `all/10-detect-ambit.sh`). Conventions inside a case:
 `CASE_FILTER=<glob>` runs only the matching cases (e.g.
 `CASE_FILTER='all/60-*' ./run-test.sh fedora44 test`); combine with `SKIP_BUILD=1`
 to reuse the existing `built` snapshot.
+`REPO_DIR=<path>` builds a different source tree, e.g. a git worktree of the
+branch under development, while the VMs stay in this checkout.
 
 **Add a scenario**: drop one file in the right bucket. **Add a distro**: write its
 plugin + `ROLLBACK_METHOD` — no case changes. **Move where a case runs**: move the

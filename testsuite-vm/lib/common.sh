@@ -2,7 +2,9 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# REPO_DIR selects the source tree synced into the VMs (e.g. a git worktree of
+# another branch); defaults to the tree this testsuite lives in.
+REPO_DIR="${REPO_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 ISO_DIR="$SCRIPT_DIR/iso"
 DISK_DIR="$SCRIPT_DIR/disks"
 SSH_PORT="${SSH_PORT:-2222}"
