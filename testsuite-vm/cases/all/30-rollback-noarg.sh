@@ -10,8 +10,15 @@ emit_persist_marker   # must still exist after reboot (no-arg preserves data)
 
 OUT=$(snapper --no-dbus -c root rollback 2>&1)
 echo "$OUT"
-echo "$OUT" | grep -q "Creating read-only snapshot of default subvolume." \
-    || { echo "FAIL: no-arg rollback did not create the read-only snapshot of the default"; exit 1; }
+# subvol-rename boots the named root, not the btrfs default: it backs up the
+# current system
+if [ "$ROLLBACK_METHOD" = subvol-rename ]; then
+    BACKUP_MSG="Creating read-only snapshot of current system."
+else
+    BACKUP_MSG="Creating read-only snapshot of default subvolume."
+fi
+echo "$OUT" | grep -qF "$BACKUP_MSG" \
+    || { echo "FAIL: no-arg rollback did not report: $BACKUP_MSG"; exit 1; }
 if [ "$ROLLBACK_METHOD" = subvol-rename ]; then
     EXPECTED="Replacing subvolume '$SUBVOL_NAME' with a copy of snapshot"
 else
