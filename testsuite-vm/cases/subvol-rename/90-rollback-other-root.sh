@@ -46,5 +46,10 @@ if ls -d "$H/$SUBVOL_NAME".rollback.* >/dev/null 2>&1 \
 fi
 toplevel_umount "$H"
 
+# the target is not the running system: nothing is mounted into it
+if findmnt -n "$TARGET/.snapshots" >/dev/null; then
+    echo "FAIL: the rollback left $(findmnt -n -o TARGET,SOURCE "$TARGET/.snapshots") mounted"; exit 1
+fi
+
 umount -R "$TARGET"; umount "$TOP"; losetup -d "$LOOP"
 echo "target root2 replaced, running system untouched"
