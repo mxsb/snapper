@@ -79,6 +79,11 @@ autoinstall:
       ROOTDEV=/dev/vda3
       BOOTDEV=/dev/vda2
       btrfs subvolume snapshot /target /target/@
+      # A test VM needs no swap. Ubuntu's /swap.img would be in @, where btrfs
+      # refuses it (a swapfile must be NODATACOW, the snapshot shares its
+      # extents) and where an active swapfile prevents snapshots of @.
+      rm -f /target/@/swap.img
+      sed -i '/swap\.img/d' /target/@/etc/fstab
       # add subvol=@ to the root line in @'s fstab
       awk '($2=="/" && $3=="btrfs" && $4 !~ /subvol=/){ $4=$4",subvol=@" } {print}' OFS="\t" /target/@/etc/fstab > /tmp/fstab.new
       cp /tmp/fstab.new /target/@/etc/fstab
