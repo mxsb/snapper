@@ -1,0 +1,16 @@
+#cloud-config
+# Only root SSH access here; post-install.sh does the rest over SSH.
+hostname: snapper-test
+disable_root: false
+users:
+  - name: root
+    ssh_authorized_keys:
+      - @@SSH_PUBKEY@@
+write_files:
+  - path: /etc/ssh/sshd_config.d/99-snapper-test.conf
+    content: |
+      PermitRootLogin prohibit-password
+growpart:
+  mode: auto
+  devices: ['/']
+resize_rootfs: true

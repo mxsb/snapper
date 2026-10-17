@@ -16,6 +16,8 @@ usage() {
     echo "  build     Copy source from host and build snapper in VM"
     echo "  real [T]  Rebuild changed sources in the 'built' snapshot and run testsuite-real"
     echo "            (all tests, or test T) on a scratch btrfs at /testsuite"
+    echo "            (REAL_SETUP=<command> runs in the source tree before make, e.g. to"
+    echo "            reconfigure)"
     echo "  run S     Run host script S as root in a fresh restore of 'built'"
     echo "  provision C  Run command C in 'clean-install' and save it back (e.g. new build deps)"
     echo "  ssh       Open SSH session to VM"
@@ -74,8 +76,25 @@ cmd_install() {
     local ps_tmp="$stage_dir/preseed.cfg"
     local seed_iso="$stage_dir/ubuntu-seed.iso"
     local location_arg="$ISO_DIR/$ISO_FILE"
+    local disk_arg="path=$DISK_IMG,size=$VM_DISK,format=qcow2,cache=none"
+    local boot_args=()
 
-    if [[ -f "$DISTRO_DIR/kickstart.ks" ]]; then
+    if [[ -n "${CLOUD_IMAGE:-}" ]]; then
+        # A ready-made cloud image (ISO_URL is the qcow2): boot it directly,
+        # configured by cloud-init from a NoCloud "cidata" seed ISO.
+        local seed_dir
+        seed_dir=$(mktemp -d)
+        prepare_installer_config "$DISTRO_DIR/user-data" "$seed_dir/user-data"
+        : > "$seed_dir/meta-data"
+        genisoimage -quiet -output "$seed_iso" -volid cidata -joliet -rock \
+            "$seed_dir/user-data" "$seed_dir/meta-data"
+        rm -rf "$seed_dir"
+        cp --sparse=always "$ISO_DIR/$ISO_FILE" "$DISK_IMG"
+        qemu-img resize -q "$DISK_IMG" "${VM_DISK}G"
+        disk_arg="path=$DISK_IMG,format=qcow2,cache=none"
+        boot_args=(--import)
+        installer_args+=(--disk "path=$seed_iso,device=cdrom")
+    elif [[ -f "$DISTRO_DIR/kickstart.ks" ]]; then
         prepare_installer_config "$DISTRO_DIR/kickstart.ks" "$ks_tmp"
         info "Prepared kickstart: $ks_tmp ($(wc -c < "$ks_tmp") bytes)"
         installer_args+=(--initrd-inject="$ks_tmp")
@@ -109,6 +128,9 @@ cmd_install() {
         die "No installer config found in $DISTRO_DIR"
     fi
 
+    # installer ISOs boot their installer, a cloud image (--import) itself
+    [[ -n "${CLOUD_IMAGE:-}" ]] || boot_args=(--location "$location_arg" --noreboot)
+
     trap 'info "Install failed, cleaning up..."; destroy_vm "$VM_NAME"; rm -f "$DISK_IMG" "$ks_tmp" "$ay_tmp" "$ps_tmp" "$seed_iso"' ERR
 
     : > "$SERIAL_LOG"
@@ -122,12 +144,11 @@ cmd_install() {
         --name "$VM_NAME" \
         --ram "$VM_RAM" \
         --vcpus "$VM_CPUS" \
-        --disk "path=$DISK_IMG,size=$VM_DISK,format=qcow2,cache=none" \
+        --disk "$disk_arg" \
         --os-variant "$OS_VARIANT" \
-        --location "$location_arg" \
         --network passt,portForward="${SSH_PORT}:22" \
         --serial "file,path=$SERIAL_LOG" \
-        --noreboot \
+        "${boot_args[@]}" \
         "${console_args[@]}" \
         "${installer_args[@]}"
 
@@ -145,10 +166,15 @@ cmd_install() {
         done
     fi
 
-    # Detach the Ubuntu autoinstall seed CD before deleting it, otherwise
-    # restarting the VM fails on the dangling reference (and the installed
-    # system must not re-read the NoCloud seed on later boots).
+    # Detach the NoCloud seed CD before deleting it, otherwise restarting the
+    # VM fails on the dangling reference (and the installed system must not
+    # re-read the seed on later boots). A cloud image is still running here:
+    # eject the medium live too, or the clean-install snapshot of the running
+    # VM keeps referring to the deleted file and cannot be reverted.
     if [[ -f "$seed_iso" ]]; then
+        if vm_running "$VM_NAME"; then
+            $VIRSH change-media "$VM_NAME" "$seed_iso" --eject --live >/dev/null 2>&1 || true
+        fi
         virt-xml --connect qemu:///session "$VM_NAME" --remove-device --disk "path=$seed_iso" 2>/dev/null || true
     fi
     rm -f "$ks_tmp" "$ay_tmp" "$ps_tmp" "$seed_iso"
@@ -182,9 +208,28 @@ cmd_install() {
     done
     vm_ssh true 2>/dev/null || die "SSH did not come up after install (see $SERIAL_LOG)"
 
+    # A failed fixup leaves a half-configured VM: remove it like a failed
+    # install, so that the next install starts over.
+    fixup_failed() {
+	info "$1 failed, cleaning up..."
+	destroy_vm "$VM_NAME"
+	rm -f "$DISK_IMG"
+	die "$1 failed (see $LOG_FILE)"
+    }
+
     if [[ -f "$DISTRO_DIR/post-install.sh" ]]; then
 	info "Running post-install fixups..."
-	vm_ssh bash -ex < "$DISTRO_DIR/post-install.sh"
+	vm_ssh bash -ex < "$DISTRO_DIR/post-install.sh" || fixup_failed "post-install.sh"
+    fi
+
+    # Setup that needs the system rebooted first (e.g. after converting the root
+    # into a subvolume).
+    if [[ -f "$DISTRO_DIR/post-reboot.sh" ]]; then
+	info "Rebooting for post-reboot fixups..."
+	vm_ssh systemctl reboot || true
+	sleep 5
+	wait_for_ssh 600 soft || fixup_failed "Reboot after post-install.sh"
+	vm_ssh bash -ex < "$DISTRO_DIR/post-reboot.sh" || fixup_failed "post-reboot.sh"
     fi
 
     snapshot_vm "$VM_NAME" "clean-install"
@@ -218,6 +263,7 @@ cmd_real() {
     sync_source_incremental
     local test="${1:-}"
     vm_ssh "set -e; date -u -s '$(date -u '+%Y-%m-%d %H:%M:%S')' >/dev/null; cd /root/snapper
+${REAL_SETUP:-true}
 make -j\$(nproc) >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }
 make -C testsuite-real ${test:-} >/tmp/make-real.log 2>&1 || { grep -E 'error' /tmp/make-real.log | head -30; exit 1; }
 mkdir -p /etc/sysconfig; [ -e /etc/sysconfig/snapper ] || echo 'SNAPPER_CONFIGS=\"\"' > /etc/sysconfig/snapper

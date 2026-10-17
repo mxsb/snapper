@@ -74,12 +74,20 @@ file between buckets.
 | fedora44 | 2226 | subvol-rename | kickstart |
 | fedora44-cloud | 2227 | subvol-rename | kickstart |
 | ubuntu2604 | 2225 | subvol-rename | subiquity autoinstall |
+| arch | 2228 | subvol-rename | cloud image + cloud-init |
 
 `fedora44` is a stock Anaconda layout (`root`, `home`), plus `systemd-container`
 so both `var/lib/portables` and `var/lib/machines` exist as nested subvolumes of
 `root` (a Workstation install has `machines`, a netinst one `portables`).
 `fedora44-cloud` follows the Fedora Cloud layout with a separate top-level `var`
 subvolume, so those nest under `var` instead.
+
+`arch` boots the official Arch Linux cloud image (`CLOUD_IMAGE=1`: the qcow2 is
+imported instead of running an installer, configured by cloud-init from a NoCloud
+seed ISO). Its `post-install.sh` converts the plain btrfs root into an `@`
+subvolume the way the Arch wiki does it (fstab from `genfstab`, grub regenerated
+for `rootflags=subvol=@`), and `post-reboot.sh` checks after a reboot that `@` is
+booted. Its initramfs is systemd-based (mkinitcpio `systemd` hook).
 
 Ubuntu's installer (subiquity/curtin) cannot create btrfs subvolumes, so its
 profile installs a plain btrfs root and converts it to a named `@` subvolume in
