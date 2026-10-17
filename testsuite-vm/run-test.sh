@@ -14,6 +14,10 @@ usage() {
     echo "  test      Build snapper and run the rollback test engine (default, auto-installs if needed)"
     echo "  install   Create VM from ISO (first time only)"
     echo "  build     Copy source from host and build snapper in VM"
+    echo "  real [T]  Rebuild changed sources in the 'built' snapshot and run testsuite-real"
+    echo "            (all tests, or test T) on a scratch btrfs at /testsuite"
+    echo "  run S     Run host script S as root in a fresh restore of 'built'"
+    echo "  provision C  Run command C in 'clean-install' and save it back (e.g. new build deps)"
     echo "  ssh       Open SSH session to VM"
     echo "  destroy   Remove VM and disk image"
     exit 1
@@ -23,6 +27,7 @@ usage() {
 
 DISTRO="$1"
 COMMAND="${2:-test}"
+shift $(( $# < 2 ? $# : 2 ))
 DISTRO_DIR="$SCRIPT_DIR/distros/$DISTRO"
 
 [[ -d "$DISTRO_DIR" ]] || die "Unknown distro: $DISTRO (no $DISTRO_DIR)"
@@ -202,6 +207,57 @@ cmd_test() {
     run_engine
 }
 
+# testsuite-real needs root and a scratch btrfs at /testsuite (CAUTION): run it
+# in the 'built' snapshot with upstream's setup-and-run-all, after an
+# incremental rebuild of the changed sources.
+cmd_real() {
+    has_snapshot "$VM_NAME" built || die "No 'built' snapshot; run '$0 $DISTRO test' first"
+    restore_vm "$VM_NAME" built
+    $VIRSH start "$VM_NAME" 2>/dev/null || true
+    wait_for_ssh
+    sync_source_incremental
+    local test="${1:-}"
+    vm_ssh "set -e; date -u -s '$(date -u '+%Y-%m-%d %H:%M:%S')' >/dev/null; cd /root/snapper
+make -j\$(nproc) >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }
+make -C testsuite-real ${test:-} >/tmp/make-real.log 2>&1 || { grep -E 'error' /tmp/make-real.log | head -30; exit 1; }
+mkdir -p /etc/sysconfig; [ -e /etc/sysconfig/snapper ] || echo 'SNAPPER_CONFIGS=\"\"' > /etc/sysconfig/snapper
+cd testsuite-real
+# upstream's scratch setup: loop btrfs at /testsuite, config 'testsuite', nobody
+if [ -n '${test:-}' ]; then ./setup-and-run-all setup >/tmp/setup.log 2>&1 || { cat /tmp/setup.log; exit 1; }; ./${test:-}
+else ./setup-and-run-all 2>&1 | grep -v '^+'; fi"
+}
+
+cmd_run() {
+    local script="${1:?usage: $0 $DISTRO run <script>}"
+    has_snapshot "$VM_NAME" built || die "No 'built' snapshot; run '$0 $DISTRO test' first"
+    restore_vm "$VM_NAME" built
+    $VIRSH start "$VM_NAME" 2>/dev/null || true
+    wait_for_ssh
+    vm_ssh bash -s < "$script"
+}
+
+# The RAM snapshot restores the guest's network state from install time; if the
+# host network changed since, its resolver is stale. Swap in a public one for
+# the command, then save the result as the new 'clean-install' ('built' is
+# dropped since it no longer derives from it).
+cmd_provision() {
+    local cmd="${1:?usage: $0 $DISTRO provision '<command>'}"
+    restore_vm "$VM_NAME" clean-install
+    $VIRSH start "$VM_NAME" 2>/dev/null || true
+    wait_for_ssh
+    vm_ssh "date -u -s '$(date -u '+%Y-%m-%d %H:%M:%S')' >/dev/null
+mv /etc/resolv.conf /etc/resolv.conf.provision
+echo nameserver 9.9.9.9 > /etc/resolv.conf
+$cmd; rc=\$?
+rm -f /etc/resolv.conf; mv /etc/resolv.conf.provision /etc/resolv.conf
+exit \$rc"
+    $VIRSH snapshot-delete "$VM_NAME" built >/dev/null 2>&1 || true
+    $VIRSH snapshot-delete "$VM_NAME" clean-install >/dev/null
+    $VIRSH snapshot-create-as "$VM_NAME" clean-install >/dev/null
+    $VIRSH shutdown "$VM_NAME" >/dev/null 2>&1 || true
+    info "clean-install updated."
+}
+
 cmd_ssh() {
     vm_running "$VM_NAME" || $VIRSH start "$VM_NAME"
     wait_for_ssh
@@ -217,6 +273,9 @@ cmd_destroy() {
 case "$COMMAND" in
     install) cmd_install ;;
     build)   cmd_build ;;
+    real)    cmd_real "$@" ;;
+    run)     cmd_run "$@" ;;
+    provision) cmd_provision "$@" ;;
     test)    cmd_test ;;
     ssh)     cmd_ssh ;;
     destroy) cmd_destroy ;;

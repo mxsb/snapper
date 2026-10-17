@@ -23,6 +23,9 @@ unattended install, builds snapper from the host source tree, performs a
 ./run-test.sh <distro> build     # Sync source + build snapper in VM
 ./run-test.sh <distro> ssh       # Open SSH session to VM
 ./run-test.sh <distro> destroy   # Remove VM and disk image
+./run-test.sh <distro> real [T]  # testsuite-real (all, or test T) in the 'built' snapshot
+./run-test.sh <distro> run S     # Run host script S as root in a fresh 'built' restore
+./run-test.sh <distro> provision 'C'  # Run C in 'clean-install' and keep it (e.g. new deps)
 ```
 
 ## Test engine and cases

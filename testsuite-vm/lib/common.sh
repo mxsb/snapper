@@ -79,6 +79,22 @@ sync_source() {
         "$REPO_DIR/" "root@localhost:/root/snapper/"
 }
 
+# Like sync_source, but keeps the VM's configured build tree (from the 'built'
+# snapshot): the generated autotools files are not copied, so make in the VM
+# only rebuilds what changed (regenerating Makefiles from changed Makefile.am).
+sync_source_incremental() {
+    info "Syncing changed sources to VM..."
+    rsync -a \
+        -e "ssh -q ${SSH_OPTS[*]} -p $SSH_PORT" \
+        --exclude='.git' --exclude='autom4te.cache' --exclude='testsuite-vm' \
+        --exclude='.libs' --exclude='.deps' --exclude='*.o' --exclude='*.lo' --exclude='*.la' \
+        --exclude='Makefile' --exclude='Makefile.in' --exclude='configure' --exclude='configure~' \
+        --exclude='config.*' --exclude='libtool' --exclude='aclocal.m4' --exclude='stamp-h1' \
+        --exclude='ltmain.sh' --exclude='missing' --exclude='compile' --exclude='depcomp' \
+        --exclude='install-sh' --exclude='test-driver' --exclude='ar-lib' --exclude='m4' \
+        "$REPO_DIR/" "root@localhost:/root/snapper/"
+}
+
 # Evict the VM disk images and installer ISOs from the host page cache
 # (root-free, via posix_fadvise DONTNEED). qemu's default writeback caching and
 # readahead can leave ~10 GB of these files' pages resident; they are fully
