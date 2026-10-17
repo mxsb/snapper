@@ -12,8 +12,13 @@ OUT=$(snapper --no-dbus -c root rollback 2>&1)
 echo "$OUT"
 echo "$OUT" | grep -q "Creating read-only snapshot of default subvolume." \
     || { echo "FAIL: no-arg rollback did not create the read-only snapshot of the default"; exit 1; }
-echo "$OUT" | grep -q "Setting default subvolume" \
-    || { echo "FAIL: no-arg rollback did not set a new default subvolume"; exit 1; }
+if [ "$ROLLBACK_METHOD" = subvol-rename ]; then
+    EXPECTED="Replacing subvolume '$SUBVOL_NAME' with a copy of snapshot"
+else
+    EXPECTED="Setting default subvolume"
+fi
+echo "$OUT" | grep -qF "$EXPECTED" \
+    || { echo "FAIL: no-arg rollback did not report: $EXPECTED"; exit 1; }
 
 snapper --no-dbus -c root list >/dev/null || { echo "FAIL: snapper unusable after no-arg rollback"; exit 1; }
 echo "no-arg rollback issued; engine will verify the marker survives the reboot"
