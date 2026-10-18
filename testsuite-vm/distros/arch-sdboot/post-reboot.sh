@@ -1,0 +1,1 @@
+../arch/post-reboot.sh

@@ -149,6 +149,7 @@ cmd_install() {
         --network passt,portForward="${SSH_PORT}:22" \
         --serial "file,path=$SERIAL_LOG" \
         "${boot_args[@]}" \
+        ${BOOT_UEFI:+--boot uefi,firmware.feature0.name=secure-boot,firmware.feature0.enabled=no} \
         "${console_args[@]}" \
         "${installer_args[@]}"
 

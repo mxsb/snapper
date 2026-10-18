@@ -205,5 +205,5 @@ restore_vm() {
 destroy_vm() {
     local name="$1"
     $VIRSH destroy "$name" 2>/dev/null || true
-    $VIRSH undefine "$name" --snapshots-metadata 2>/dev/null || true
+    $VIRSH undefine "$name" --snapshots-metadata --nvram 2>/dev/null || true
 }

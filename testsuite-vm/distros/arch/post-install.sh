@@ -31,14 +31,31 @@ done
 # /efi is a systemd automount (findmnt shows systemd-1): mount its fstab source
 if efi=$(findmnt --fstab -n -o SOURCE /efi); then
     mount --mkdir "$efi" /mnt/efi
+elif [ -d /sys/firmware/efi ]; then
+    # not in fstab either: find the ESP by its GPT partition type
+    efi=$(lsblk -nrpo NAME,PARTTYPE /dev/vda | awk 'tolower($2) == "c12a7328-f81f-11d2-ba4b-00a0c93ec93b" { print $1 }')
+    mount --mkdir "$efi" /mnt/efi
 fi
 genfstab -U /mnt > /mnt/etc/fstab
 echo "--- fstab written by genfstab ---"; grep -v '^#' /mnt/etc/fstab | grep .
 
-# grub-mkconfig takes the layout from the mounted root; @ is the btrfs default
-# only meanwhile, reset to the top-level as on the other subvol-rename distros
-btrfs subvolume set-default "$(btrfs inspect-internal rootid /mnt)" /
-arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
-arch-chroot /mnt grub-install --target=i386-pc /dev/vda
-btrfs subvolume set-default 5 /
+if [ -d /sys/firmware/efi ]; then
+    # UEFI (the arch-sdboot profile): systemd-boot with kernel-install entries
+    # on the ESP, the kernel command line from /etc/kernel/cmdline
+    echo "root=UUID=$(findmnt -n -o UUID /mnt) rw rootflags=subvol=@ net.ifnames=0" \
+         "console=tty0 console=ttyS0,115200" > /mnt/etc/kernel/cmdline
+    echo "layout=bls" > /mnt/etc/kernel/install.conf
+    arch-chroot /mnt bootctl install --esp-path=/efi
+    kver=$(ls /mnt/usr/lib/modules | sort -V | tail -1)
+    arch-chroot /mnt kernel-install add "$kver" "/usr/lib/modules/$kver/vmlinuz"
+    arch-chroot /mnt bootctl list
+else
+    # grub-mkconfig takes the layout from the mounted root; @ is the btrfs
+    # default only meanwhile, reset to the top-level as on the other
+    # subvol-rename distros
+    btrfs subvolume set-default "$(btrfs inspect-internal rootid /mnt)" /
+    arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+    arch-chroot /mnt grub-install --target=i386-pc /dev/vda
+    btrfs subvolume set-default 5 /
+fi
 umount -R /mnt

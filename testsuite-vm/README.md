@@ -75,6 +75,7 @@ file between buckets.
 | fedora44-cloud | 2227 | subvol-rename | kickstart |
 | ubuntu2604 | 2225 | subvol-rename | subiquity autoinstall |
 | arch | 2228 | subvol-rename | cloud image + cloud-init |
+| arch-sdboot | 2229 | subvol-rename | cloud image + cloud-init, UEFI |
 
 `fedora44` is a stock Anaconda layout (`root`, `home`), plus `systemd-container`
 so both `var/lib/portables` and `var/lib/machines` exist as nested subvolumes of
@@ -88,6 +89,13 @@ seed ISO). Its `post-install.sh` converts the plain btrfs root into an `@`
 subvolume the way the Arch wiki does it (fstab from `genfstab`, grub regenerated
 for `rootflags=subvol=@`), and `post-reboot.sh` checks after a reboot that `@` is
 booted. Its initramfs is systemd-based (mkinitcpio `systemd` hook).
+
+`arch-sdboot` is the same image booted with UEFI (`BOOT_UEFI=1`, OVMF without
+Secure Boot; libvirt keeps the NVRAM as qcow2, so the RAM snapshots work). Its
+`post-install.sh` (shared with `arch`) installs systemd-boot with kernel-install
+BLS entries on the ESP instead of grub; the kernel command line comes from
+`/etc/kernel/cmdline`, not from the mounted root as with grub's `10_linux`. The
+cases that edit the kernel command line find the entries with `boot_entries()`.
 
 Ubuntu's installer (subiquity/curtin) cannot create btrfs subvolumes, so its
 profile installs a plain btrfs root and converts it to a named `@` subvolume in
