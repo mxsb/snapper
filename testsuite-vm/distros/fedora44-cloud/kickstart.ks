@@ -20,16 +20,16 @@ bootloader --boot-drive=vda --append="console=tty0 console=ttyS0,115200n8"
 
 zerombr
 clearpart --all --initlabel --drives=vda
-part biosboot --fstype=biosboot --size=1 --ondisk=vda
-part /boot --fstype=ext4 --size=1024 --ondisk=vda
+# Fedora Cloud layout (fedora-kiwi-descriptions teams/cloud/cloud.xml, f44):
+# UEFI with a 100 MB ESP and no boot partition; root, boot, home and var are
+# top-level subvolumes, so var/lib/{portables,machines} nest under var and
+# /boot is outside the root subvolume.
+part /boot/efi --fstype=efi --size=100 --ondisk=vda
 part btrfs.01 --fstype=btrfs --grow --ondisk=vda
 btrfs none --label=fedora btrfs.01
 btrfs / --subvol --name=root LABEL=fedora
+btrfs /boot --subvol --name=boot LABEL=fedora
 btrfs /home --subvol --name=home LABEL=fedora
-# Fedora Cloud layout (fedora-kiwi-descriptions teams/cloud/cloud.xml, f44):
-# /var is its own top-level subvolume, so var/lib/{portables,machines} nest under
-# var instead of root. Cloud also puts /boot in a "boot" subvolume; it stays ext4
-# here like the stock profile since it does not affect the root rollback.
 btrfs /var --subvol --name=var LABEL=fedora
 
 %packages

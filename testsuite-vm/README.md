@@ -72,7 +72,7 @@ file between buckets.
 | tumbleweed | 2222 | set-default | AutoYaST |
 | debian13 | 2223 | subvol-rename | preseed |
 | fedora44 | 2226 | subvol-rename | kickstart |
-| fedora44-cloud | 2227 | subvol-rename | kickstart |
+| fedora44-cloud | 2227 | subvol-rename | kickstart, UEFI |
 | ubuntu2604 | 2225 | subvol-rename | subiquity autoinstall |
 | arch | 2228 | subvol-rename | cloud image + cloud-init |
 | arch-sdboot | 2229 | subvol-rename | cloud image + cloud-init, UEFI |
@@ -80,8 +80,10 @@ file between buckets.
 `fedora44` is a stock Anaconda layout (`root`, `home`), plus `systemd-container`
 so both `var/lib/portables` and `var/lib/machines` exist as nested subvolumes of
 `root` (a Workstation install has `machines`, a netinst one `portables`).
-`fedora44-cloud` follows the Fedora Cloud layout with a separate top-level `var`
-subvolume, so those nest under `var` instead.
+`fedora44-cloud` follows the Fedora Cloud image layout (fedora-kiwi-descriptions
+`teams/cloud/cloud.xml`): UEFI without a boot partition, and `root`, `boot`, `home`
+and `var` as top-level subvolumes, so `var/lib/{portables,machines}` nest under
+`var` and `/boot` is outside the root subvolume.
 
 `arch` boots the official Arch Linux cloud image (`CLOUD_IMAGE=1`: the qcow2 is
 imported instead of running an installer, configured by cloud-init from a NoCloud

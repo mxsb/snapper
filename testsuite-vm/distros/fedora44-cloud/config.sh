@@ -2,6 +2,7 @@ VM_NAME="snapper-test-fedora44-cloud"
 SSH_PORT=2227
 ISO_URL="https://dl.fedoraproject.org/pub/fedora/linux/releases/44/Everything/x86_64/iso/Fedora-Everything-netinst-x86_64-44-1.7.iso"
 ISO_FILE="Fedora-Everything-netinst-x86_64-44-1.7.iso"
+BOOT_UEFI=1
 VM_RAM=2048
 VM_CPUS=2
 VM_DISK=20
