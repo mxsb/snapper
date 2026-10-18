@@ -14,7 +14,10 @@ PRE=$(snapper --no-dbus -c root create -d "limit-twice-target" -p)
 emit_marker          # created AFTER $PRE, so the rollback removes it
 
 snapper --no-dbus -c root rollback "$PRE"
-snapper --no-dbus -c root rollback "$PRE"
+# .snapshots is still mounted from the first rollback: no warning about it
+OUT=$(snapper --no-dbus -c root rollback "$PRE" 2>&1)
+echo "$OUT"
+echo "$OUT" | grep -q '^Warning:' && { echo "FAIL: the second rollback warns"; exit 1; }
 
 T=$(toplevel_mount)
 btrfs subvolume list "$T"
