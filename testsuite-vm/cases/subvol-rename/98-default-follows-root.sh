@@ -20,7 +20,8 @@ echo "new root $NEW_ID, default $DEFAULT"
 [ "$DEFAULT" = "$NEW_ID" ] || { echo "FAIL: the default subvolume still names the old root"; exit 1; }
 
 # boot by the default id only
-for f in /boot/grub/grub.cfg /boot/grub2/grub.cfg /boot/loader/entries/*.conf; do
+for f in $(boot_entries); do
     [ -f "$f" ] && sed -i -E 's/[[:space:]]rootflags=subvol=[^[:space:]]*//g' "$f"
 done
+! grep -q 'rootflags=subvol=' $(boot_entries) || { echo "FAIL: setup: subvol= still in a boot entry"; exit 1; }
 echo "booting without subvol=, engine verifies the marker is gone after reboot"

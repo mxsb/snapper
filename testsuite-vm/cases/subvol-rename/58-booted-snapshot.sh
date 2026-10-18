@@ -8,7 +8,7 @@ echo "=== rollback from a booted snapshot ==="
 STATE=/booted-snapshot.state   # in the root, and in the snapshot made after it
 PHASE=0
 [ -f "$STATE" ] && . "$STATE"
-ENTRIES="/boot/grub/grub.cfg /boot/grub2/grub.cfg /boot/loader/entries/*.conf"
+ENTRIES=$(boot_entries)
 
 case "$PHASE" in
 0)

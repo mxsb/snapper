@@ -13,7 +13,7 @@ case "$PHASE" in
 0)
     ROOT_ID=$(btrfs inspect-internal rootid /)
     # drop rootflags=subvol=... from every boot entry (other rootflags stay)
-    for f in /boot/grub/grub.cfg /boot/grub2/grub.cfg /boot/loader/entries/*.conf; do
+    for f in $(boot_entries); do
         [ -f "$f" ] || continue
         sed -i -E 's/[[:space:]]rootflags=subvol=[^[:space:]]*//g' "$f"
         grep -n 'linux\|options' "$f" | grep -v '^\s*#' | head -3

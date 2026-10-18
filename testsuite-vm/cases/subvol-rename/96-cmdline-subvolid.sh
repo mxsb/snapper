@@ -12,7 +12,7 @@ case "$PHASE" in
 0)
     ROOT_ID=$(btrfs inspect-internal rootid /)
     # append subvolid=<id> to rootflags=subvol=<name> in every boot entry
-    for f in /boot/grub/grub.cfg /boot/grub2/grub.cfg /boot/loader/entries/*.conf; do
+    for f in $(boot_entries); do
         [ -f "$f" ] || continue
         sed -i -E "s/(rootflags=subvol=[^[:space:],]+)/\1,subvolid=$ROOT_ID/g" "$f"
     done

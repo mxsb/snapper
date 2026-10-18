@@ -44,6 +44,13 @@ toplevel_mount() {
 }
 toplevel_umount() { umount "$1"; rmdir "$1"; }
 
+# The files holding the kernel command line of the boot entries: grub.cfg, and
+# BLS entries in /boot or on the ESP (systemd-boot with kernel-install).
+boot_entries() {
+    ls /boot/grub/grub.cfg /boot/grub2/grub.cfg /boot/loader/entries/*.conf \
+       /efi/loader/entries/*.conf /boot/efi/loader/entries/*.conf 2>/dev/null || true
+}
+
 # Marker that must disappear after a correct rollback+reboot. Create it AFTER the
 # pre-rollback snapshot; emit_marker tells the engine to verify it post-reboot.
 MARKER="/rollback-test-marker-$$"
